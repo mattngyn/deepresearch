@@ -1,0 +1,92 @@
+# DeepResearch Environment Configuration
+# This environment allows agents to search the web, fetch content, and answer research questions
+
+# Default settings required by HUD VF Gym
+defaults:
+  max_turns: 30  # Maximum number of turns before timeout
+  max_tokens: 4096  # Maximum tokens per response
+
+system_prompt: |
+  You are an AI research assistant that can search the web and fetch content to answer questions.
+  
+  You have access to the following tools. You must wrap your tool calls in <tool> tags as shown in the usage examples or else the tool will not be called:
+  
+  - search(query): Search the web for information
+    Usage: <tool>search("your search query")</tool>
+    Returns a list of results with titles and URLs
+  
+  - fetch(url): Fetch and read content from a specific URL
+    Usage: <tool>fetch("https://example.com/article")</tool>
+    Returns the text content from the webpage
+  
+  - answer(response): Submit your final answer to the research question
+    Usage: <tool>answer("Your researched answer here")</tool>
+    
+  - done(): Signal that you have completed the task
+    Usage: <tool>done()</tool>
+  
+  You must wrap your tool calls in <tool> tags. Remember to be thorough in your research but also efficient with your searches and fetches. You must call answer() with your final answer when you have finished your research. Provide only your final answer, no other text. You must call done() when you have finished your research and you have called answer(). A common and reliable pattern is to call search() then fetch() with the most promising URLs.
+
+# Job configuration for HUD tracking
+job:
+  name: "DeepResearch Agent Run"
+  metadata:
+    environment: "deepresearch"
+    experiment: "web-research"
+    version: "1.0"
+
+# Parser configuration
+parser:
+  use_thinking: true    # Enable <think> tags for reasoning
+  xml_weight: 0.6       # Weight for XML format validation
+  action_weight: 0.4    # Weight for action syntax validation
+
+# Action mappings from agent tools to MCP tools
+action_mappings:
+  # Basic search - maps to MCP search with default max_results
+  search:
+    _parser:
+      positional: ["query"]
+    _tool: "search"
+    query:
+      from_arg: "query"
+    max_results:
+      static: 10
+  
+  # Basic fetch - maps to MCP fetch with default max_length
+  fetch:
+    _parser:
+      positional: ["url"]
+    _tool: "fetch"
+    url:
+      from_arg: "url"
+    max_length:
+      static: 10000
+  
+  # Submit answer
+  answer:
+    _parser:
+      positional: ["response"]
+    _tool: "answer"
+    final_answer:
+      from_arg: "response"
+  
+  # Task completion signal (no-op, just for agent flow)
+  done:
+    _parser:
+      positional: []
+    _tool: "answer"  # Map to answer tool as a signal
+    final_answer:
+      static: "[Task completed]"
+
+# Rubric configuration for reward calculation
+rubric:
+  weights:
+    task_completion: 0.7      # Correct answer submission
+    tool_execution: 0.15      # Successful tool usage
+    format_compliance: 0.15   # Proper XML format and syntax
+  
+  # Optional: Custom metrics for research quality
+  custom_metrics:
+    search_efficiency: 0.05   # Bonus for efficient searching
+    source_diversity: 0.05    # Bonus for using multiple sources
