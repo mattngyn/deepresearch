@@ -1,0 +1,73 @@
+version: '1.0'
+image: deepresearch:dev@sha256:d806a4c578d83394e037de4d4154492cd0da1b72e62010e7c57c53eea0d3c527
+build:
+  generatedAt: '2025-09-02T00:54:54.002000Z'
+  hudVersion: 0.4.17
+  directory: deepresearch
+  version: 0.1.1
+environment:
+  initializeMs: 1904
+  toolCount: 5
+tools:
+- name: search
+  description: "Search the web for information and return titles and URLs.\n\nArgs:\n\
+    \    query: The search query string\n    max_results: Maximum number of results\
+    \ to return (default: 10)\n\nReturns:\n    List of dictionaries containing 'title'\
+    \ and 'url' for each result"
+  inputSchema:
+    properties:
+      query:
+        title: Query
+        type: string
+      max_results:
+        default: 10
+        title: Max Results
+        type: integer
+    required:
+    - query
+    type: object
+- name: fetch
+  description: "Fetch and extract text content from a URL.\n\nArgs:\n    url: The\
+    \ URL to fetch content from\n    max_length: Maximum length of text to return\
+    \ (default: 10000 characters)\n\nReturns:\n    Extracted text content from the\
+    \ webpage"
+  inputSchema:
+    properties:
+      url:
+        title: Url
+        type: string
+      max_length:
+        default: 10000
+        title: Max Length
+        type: integer
+    required:
+    - url
+    type: object
+- name: answer
+  description: "Submit the final answer to the research question.\n\nArgs:\n    final_answer:\
+    \ The agent's final answer to the task\n\nReturns:\n    Confirmation message"
+  inputSchema:
+    properties:
+      final_answer:
+        title: Final Answer
+        type: string
+    required:
+    - final_answer
+    type: object
+- name: setup
+  description: Required for HUD environments. Initialize for a new task.
+  inputSchema:
+    properties: {}
+    type: object
+- name: evaluate
+  description: "Required for HUD environments. Evaluates if the submitted answer matches\
+    \ the expected answer.\n\nArgs:\n    expected_answer: The correct answer to check\
+    \ against\n\nReturns:\n    Evaluation result with reward and content string"
+  inputSchema:
+    properties:
+      expected_answer:
+        title: Expected Answer
+        type: string
+    required:
+    - expected_answer
+    type: object
