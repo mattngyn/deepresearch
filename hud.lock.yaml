@@ -1,12 +1,12 @@
 version: '1.0'
-image: deepresearch:dev@sha256:58fbb5cf0f1b97df8561fff52f8a1baf5cdcc5afd6606a3ed436ea2c8f03ef6e
+image: deepresearch:dev@sha256:c655c35f7008c8b4fce4f0accef67816c8735a85ae6880cf82bbad33925faa36
 build:
-  generatedAt: '2025-09-02T08:22:34.008261Z'
+  generatedAt: '2025-09-02T23:16:48.305623Z'
   hudVersion: 0.4.17
   directory: deepresearch
-  version: 0.1.2
+  version: 0.1.4
 environment:
-  initializeMs: 2109
+  initializeMs: 7225
   toolCount: 5
 tools:
 - name: search
