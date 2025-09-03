@@ -5,7 +5,7 @@ tasks = []
 
 tasks.append({
     "id": str(uuid.uuid4()),
-    "prompt": "When was The Specialty Food Association (SFA) founded? Return just the year, no other text.",
+    "prompt": "When was The Specialty Food Association (SFA) founded?",
     "mcp_config": {
         "deepresearch": {
             "command": "docker",
@@ -26,7 +26,7 @@ tasks.append({
 
 tasks.append({
     "id": str(uuid.uuid4()),
-    "prompt": "What year was hud (Y-Combinator) founded? Return just the year, no other text.",
+    "prompt": "What year was hud (Y-Combinator) founded?",
     "mcp_config": {
         "deepresearch": {
             "command": "docker",
@@ -47,7 +47,7 @@ tasks.append({
 
 tasks.append({
     "id": str(uuid.uuid4()),
-    "prompt": "What is Sundar Pichai's (Google CEO) wife's first name? Return just the first name, no other text.",
+    "prompt": "What is Sundar Pichai's (Google CEO) wife's first name?",
     "mcp_config": {
         "deepresearch": {
             "command": "docker",
@@ -68,7 +68,7 @@ tasks.append({
 
 tasks.append({
     "id": str(uuid.uuid4()),
-    "prompt": "What was the first name of the actor who played Dom Cobb in Inception? Return just the first name, no other text.",
+    "prompt": "What was the first name of the actor who played Dom Cobb in Inception?",
     "mcp_config": {
         "deepresearch": {
             "command": "docker",
@@ -89,7 +89,7 @@ tasks.append({
 
 tasks.append({
     "id": str(uuid.uuid4()),
-    "prompt": "What was the first name of the actor who played Harvey Dent in The Dark Knight? Return just the first name, no other text.",
+    "prompt": "What was the first name of the actor who played Harvey Dent in The Dark Knight?",
     "mcp_config": {
         "deepresearch": {
             "command": "docker",
@@ -110,7 +110,7 @@ tasks.append({
 
 tasks.append({
     "id": str(uuid.uuid4()),
-    "prompt": "What was the last name of the actor who played Caledon Hockley in Titanic? Return just the last name, no other text.",
+    "prompt": "What was the last name of the actor who played Caledon Hockley in Titanic?",
     "mcp_config": {
         "deepresearch": {
             "command": "docker",
@@ -131,7 +131,7 @@ tasks.append({
 
 tasks.append({
     "id": str(uuid.uuid4()),
-    "prompt": "When was the paper 'Sparse Autoencoders Find Highly Interpretable Features in Language Models' first published to arXiv? Return just the year, no other text.",
+    "prompt": "When was the paper 'Sparse Autoencoders Find Highly Interpretable Features in Language Models' first published to arXiv?",
     "mcp_config": {
         "deepresearch": {
             "command": "docker",
@@ -152,7 +152,7 @@ tasks.append({
 
 tasks.append({
     "id": str(uuid.uuid4()),
-    "prompt": "What year was OpenAI's o3 model first announced? Return just the year, no other text.",
+    "prompt": "What year was OpenAI's o3 model first announced?",
     "mcp_config": {
         "deepresearch": {
             "command": "docker",
@@ -173,7 +173,7 @@ tasks.append({
 
 tasks.append({
     "id": str(uuid.uuid4()),
-    "prompt": "When was The Specialty Food Association (SFA) founded? Return just the year, no other text.",
+    "prompt": "When was The Specialty Food Association (SFA) founded?",
     "mcp_config": {
         "deepresearch": {
             "command": "docker",
@@ -194,7 +194,7 @@ tasks.append({
 
 tasks.append({
     "id": str(uuid.uuid4()),
-    "prompt": "What year was hud (Y-Combinator) founded? Return just the year, no other text.",
+    "prompt": "What year was hud (Y-Combinator) founded?",
     "mcp_config": {
         "deepresearch": {
             "command": "docker",
@@ -215,7 +215,7 @@ tasks.append({
 
 tasks.append({
     "id": str(uuid.uuid4()),
-    "prompt": "What is Sundar Pichai's (Google CEO) wife's first name? Return just the first name, no other text.",
+    "prompt": "What is Sundar Pichai's (Google CEO) wife's first name?",
     "mcp_config": {
         "deepresearch": {
             "command": "docker",
@@ -236,7 +236,7 @@ tasks.append({
 
 tasks.append({
     "id": str(uuid.uuid4()),
-    "prompt": "What was the first name of the actor who played Dom Cobb in Inception? Return just the first name, no other text.",
+    "prompt": "What was the first name of the actor who played Dom Cobb in Inception?",
     "mcp_config": {
         "deepresearch": {
             "command": "docker",
@@ -257,7 +257,7 @@ tasks.append({
 
 tasks.append({
     "id": str(uuid.uuid4()),
-    "prompt": "What was the first name of the actor who played Harvey Dent in The Dark Knight? Return just the first name, no other text.",
+    "prompt": "What was the first name of the actor who played Harvey Dent in The Dark Knight?",
     "mcp_config": {
         "deepresearch": {
             "command": "docker",
@@ -278,7 +278,7 @@ tasks.append({
 
 tasks.append({
     "id": str(uuid.uuid4()),
-    "prompt": "What was the last name of the actor who played Caledon Hockley in Titanic? Return just the last name, no other text.",
+    "prompt": "What was the last name of the actor who played Caledon Hockley in Titanic?",
     "mcp_config": {
         "deepresearch": {
             "command": "docker",
@@ -299,7 +299,7 @@ tasks.append({
 
 tasks.append({
     "id": str(uuid.uuid4()),
-    "prompt": "When was the paper 'Sparse Autoencoders Find Highly Interpretable Features in Language Models' first published to arXiv? Return just the year, no other text.",
+    "prompt": "When was the paper 'Sparse Autoencoders Find Highly Interpretable Features in Language Models' first published to arXiv?",
     "mcp_config": {
         "deepresearch": {
             "command": "docker",
@@ -320,7 +320,7 @@ tasks.append({
 
 tasks.append({
     "id": str(uuid.uuid4()),
-    "prompt": "What year was OpenAI's o3 model first announced? Return just the year, no other text.",
+    "prompt": "What year was OpenAI's o3 model first announced?",
     "mcp_config": {
         "deepresearch": {
             "command": "docker",
@@ -341,7 +341,7 @@ tasks.append({
 
 tasks.append({
     "id": str(uuid.uuid4()),
-    "prompt": "When was The Specialty Food Association (SFA) founded? Return just the year, no other text.",
+    "prompt": "When was The Specialty Food Association (SFA) founded?",
     "mcp_config": {
         "deepresearch": {
             "command": "docker",
@@ -362,7 +362,7 @@ tasks.append({
 
 tasks.append({
     "id": str(uuid.uuid4()),
-    "prompt": "What year was hud (Y-Combinator) founded? Return just the year, no other text.",
+    "prompt": "What year was hud (Y-Combinator) founded?",
     "mcp_config": {
         "deepresearch": {
             "command": "docker",
@@ -383,7 +383,7 @@ tasks.append({
 
 tasks.append({
     "id": str(uuid.uuid4()),
-    "prompt": "What is Sundar Pichai's (Google CEO) wife's first name? Return just the first name, no other text.",
+    "prompt": "What is Sundar Pichai's (Google CEO) wife's first name?",
     "mcp_config": {
         "deepresearch": {
             "command": "docker",
@@ -404,7 +404,7 @@ tasks.append({
 
 tasks.append({
     "id": str(uuid.uuid4()),
-    "prompt": "What was the first name of the actor who played Dom Cobb in Inception? Return just the first name, no other text.",
+    "prompt": "What was the first name of the actor who played Dom Cobb in Inception?",
     "mcp_config": {
         "deepresearch": {
             "command": "docker",
@@ -425,7 +425,7 @@ tasks.append({
 
 tasks.append({
     "id": str(uuid.uuid4()),
-    "prompt": "What was the first name of the actor who played Harvey Dent in The Dark Knight? Return just the first name, no other text.",
+    "prompt": "What was the first name of the actor who played Harvey Dent in The Dark Knight?",
     "mcp_config": {
         "deepresearch": {
             "command": "docker",
@@ -446,7 +446,7 @@ tasks.append({
 
 tasks.append({
     "id": str(uuid.uuid4()),
-    "prompt": "What was the last name of the actor who played Caledon Hockley in Titanic? Return just the last name, no other text.",
+    "prompt": "What was the last name of the actor who played Caledon Hockley in Titanic?",
     "mcp_config": {
         "deepresearch": {
             "command": "docker",
@@ -467,7 +467,7 @@ tasks.append({
 
 tasks.append({
     "id": str(uuid.uuid4()),
-    "prompt": "When was the paper 'Sparse Autoencoders Find Highly Interpretable Features in Language Models' first published to arXiv? Return just the year, no other text.",
+    "prompt": "When was the paper 'Sparse Autoencoders Find Highly Interpretable Features in Language Models' first published to arXiv?",
     "mcp_config": {
         "deepresearch": {
             "command": "docker",
@@ -488,7 +488,7 @@ tasks.append({
 
 tasks.append({
     "id": str(uuid.uuid4()),
-    "prompt": "What year was OpenAI's o3 model first announced? Return just the year, no other text.",
+    "prompt": "What year was OpenAI's o3 model first announced?",
     "mcp_config": {
         "deepresearch": {
             "command": "docker",

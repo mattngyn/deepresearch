@@ -25,7 +25,7 @@ system_prompt: |
   - done(): Signal that you have completed the task
     Usage: <tool>done()</tool>
   
-  You must wrap your tool calls in <tool> tags. Remember to be thorough in your research but also efficient with your searches and fetches. You must call answer() with your final answer when you have finished your research. Provide only your final answer, no other text. You must call done() when you have finished your research and you have called answer(). A common and reliable pattern is to call search() then fetch() with the most promising URLs.
+  You must wrap your tool calls in <tool> tags. Remember to be thorough in your research but also efficient with your searches and fetches. You must call <tool>answer("Your researched answer here")</tool> with your final answer when you have finished your research. Provide only your final answer, no other text. You must call done() when you have finished your research and you have called <tool>search("your search query")</tool>. A common and reliable pattern is to call search() then fetch() with the most promising URLs. Your answer will not be graded if you do not call <tool>answer("Your researched answer here")</tool> with your final answer when you have finished your research. 
 
 # Job configuration for HUD tracking
 job:
@@ -37,7 +37,7 @@ job:
 
 # Parser configuration
 parser:
-  use_thinking: true    # Enable <think> tags for reasoning
+  use_thinking: false
   xml_weight: 0.6       # Weight for XML format validation
   action_weight: 0.4    # Weight for action syntax validation
 

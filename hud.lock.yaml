@@ -1,19 +1,19 @@
 version: '1.0'
-image: deepresearch:dev@sha256:c655c35f7008c8b4fce4f0accef67816c8735a85ae6880cf82bbad33925faa36
+image: deepresearch:dev@sha256:4887d9106f05712b7f6dd93fafc8712d887bbfa6a22e4f514401fee14a9c59f1
 build:
-  generatedAt: '2025-09-02T23:16:48.305623Z'
+  generatedAt: '2025-09-03T21:24:35.862945Z'
   hudVersion: 0.4.17
   directory: deepresearch
-  version: 0.1.4
+  version: 0.1.14
 environment:
-  initializeMs: 7225
+  initializeMs: 2046
   toolCount: 5
 tools:
 - name: search
-  description: "Search the web for information and return titles and URLs.\n\nArgs:\n\
-    \    query: The search query string\n    max_results: Maximum number of results\
-    \ to return (default: 10)\n\nReturns:\n    List of dictionaries containing 'title'\
-    \ and 'url' for each result"
+  description: "Search the web for information and return titles and URLs using Exa\
+    \ API.\n\nArgs:\n    query: The search query string\n    max_results: Maximum\
+    \ number of results to return (default: 10)\n\nReturns:\n    List of dictionaries\
+    \ containing 'title' and 'url' for each result"
   inputSchema:
     properties:
       query:
@@ -27,10 +27,10 @@ tools:
     - query
     type: object
 - name: fetch
-  description: "Fetch and extract text content from a URL.\n\nArgs:\n    url: The\
-    \ URL to fetch content from\n    max_length: Maximum length of text to return\
-    \ (default: 10000 characters)\n\nReturns:\n    Extracted text content from the\
-    \ webpage"
+  description: "Fetch and extract text content from a URL using Exa API.\n\nArgs:\n\
+    \    url: The URL to fetch content from\n    max_length: Maximum length of text\
+    \ to return (default: 10000 characters)\n\nReturns:\n    Extracted text content\
+    \ from the webpage"
   inputSchema:
     properties:
       url:

@@ -1,5 +1,6 @@
 """Simple DeepResearch MCP server for HUD."""
 import httpx
+import os
 from bs4 import BeautifulSoup
 from urllib.parse import quote_plus, urlparse
 from hud.server import MCPServer
@@ -22,7 +23,7 @@ async def cleanup():
 @mcp.tool()
 async def search(query: str, max_results: int = 10) -> List[Dict[str, str]]:
     """
-    Search the web for information and return titles and URLs.
+    Search the web for information and return titles and URLs using Exa API.
     
     Args:
         query: The search query string
@@ -33,27 +34,44 @@ async def search(query: str, max_results: int = 10) -> List[Dict[str, str]]:
     """
     results = []
     
+    # Get Exa API key from environment
+    exa_api_key = os.getenv('EXA_API_KEY')
+    if not exa_api_key:
+        return [{
+            "error": "Exa API key not found",
+            "message": "Please set EXA_API_KEY environment variable",
+            "instructions": "Get your API key from https://dashboard.exa.ai/home"
+        }]
+    
     try:
-        # Use DuckDuckGo HTML search (no API key required)
-        search_url = f"https://html.duckduckgo.com/html/?q={quote_plus(query)}"
+        # Use Exa search API
+        search_url = "https://api.exa.ai/search"
         
-        async with httpx.AsyncClient(follow_redirects=True) as client:
-            response = await client.get(
+        async with httpx.AsyncClient() as client:
+            response = await client.post(
                 search_url,
                 headers={
-                    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
+                    "x-api-key": exa_api_key,
+                    "Content-Type": "application/json"
+                },
+                json={
+                    "query": query,
+                    "numResults": max_results,
+                    "type": "auto",  # Auto-selects between neural and keyword search
+                    "userLocation": "us",  # Bias results for US region
+                    "contents": {
+                        "text": {"maxCharacters": 1000}  # Get text snippets
+                    }
                 }
             )
+            
             response.raise_for_status()
+            data = response.json()
             
-            soup = BeautifulSoup(response.text, 'lxml')
-            
-            # Find search results
-            result_links = soup.find_all('a', class_='result__a')
-            
-            for link in result_links[:max_results]:
-                title = link.get_text(strip=True)
-                url = link.get('href', '')
+            # Extract results
+            for result in data.get('results', []):
+                title = result.get('title', '')
+                url = result.get('url', '')
                 
                 if title and url:
                     results.append({
@@ -61,58 +79,48 @@ async def search(query: str, max_results: int = 10) -> List[Dict[str, str]]:
                         'url': url
                     })
             
-            # If no results found with the primary method, try alternative parsing
+            # If no results, provide helpful feedback
             if not results:
-                # Try alternative selectors
-                for result in soup.find_all('div', class_='result')[:max_results]:
-                    title_elem = result.find('a', class_='result__a')
-                    if title_elem:
-                        title = title_elem.get_text(strip=True)
-                        url = title_elem.get('href', '')
-                        if title and url:
-                            results.append({
-                                'title': title,
-                                'url': url
-                            })
-                            
-    except Exception as primary_error:
-        # Fallback to a simple Google search if DuckDuckGo fails
-        try:
-            search_url = f"https://www.google.com/search?q={quote_plus(query)}"
-            async with httpx.AsyncClient(follow_redirects=True) as client:
-                response = await client.get(
-                    search_url,
-                    headers={
-                        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
-                    }
-                )
-                soup = BeautifulSoup(response.text, 'lxml')
+                return [{
+                    "message": "No results found",
+                    "query": query,
+                    "autopromptString": data.get('autopromptString', query)
+                }]
                 
-                # Parse Google search results
-                for g in soup.find_all('div', class_='g')[:max_results]:
-                    title_elem = g.find('h3')
-                    link_elem = g.find('a')
-                    
-                    if title_elem and link_elem:
-                        title = title_elem.get_text(strip=True)
-                        url = link_elem.get('href', '')
-                        if title and url and url.startswith('http'):
-                            results.append({
-                                'title': title,
-                                'url': url
-                            })
-        except Exception as fallback_error:
-            return [{"error": f"Search failed. Primary: {str(primary_error)}, Fallback: {str(fallback_error)}"}]
+    except httpx.HTTPStatusError as e:
+        if e.response.status_code == 401:
+            return [{
+                "error": "Invalid Exa API key",
+                "message": "Please check your EXA_API_KEY environment variable",
+                "status_code": str(e.response.status_code)
+            }]
+        elif e.response.status_code == 429:
+            return [{
+                "error": "Exa API rate limit exceeded",
+                "message": "Please wait before making more requests",
+                "status_code": str(e.response.status_code)
+            }]
+        else:
+            return [{
+                "error": f"Exa API error: {e.response.status_code}",
+                "message": str(e),
+                "response": e.response.text[:500]
+            }]
+    except Exception as e:
+        return [{
+            "error": f"Search failed: {type(e).__name__}",
+            "message": str(e)
+        }]
     
     # Store search history in context
     ctx.add_search(query, results)
     
-    return results if results else [{"message": "No results found"}]
+    return results
 
 @mcp.tool()
 async def fetch(url: str, max_length: int = 10000) -> str:
     """
-    Fetch and extract text content from a URL.
+    Fetch and extract text content from a URL using Exa API.
     
     Args:
         url: The URL to fetch content from
@@ -121,17 +129,80 @@ async def fetch(url: str, max_length: int = 10000) -> str:
     Returns:
         Extracted text content from the webpage
     """
+    # Validate URL
+    parsed = urlparse(url)
+    if not parsed.scheme or not parsed.netloc:
+        return f"Invalid URL: {url}"
+    
+    # Get Exa API key
+    exa_api_key = os.getenv('EXA_API_KEY')
+    if not exa_api_key:
+        # Fallback to direct fetch if no API key
+        return await _direct_fetch(url, max_length)
+    
     try:
-        # Validate URL
-        parsed = urlparse(url)
-        if not parsed.scheme or not parsed.netloc:
-            return f"Invalid URL: {url}"
+        # Use Exa contents API for reliable fetching
+        contents_url = "https://api.exa.ai/contents"
         
+        async with httpx.AsyncClient() as client:
+            response = await client.post(
+                contents_url,
+                headers={
+                    "x-api-key": exa_api_key,
+                    "Content-Type": "application/json"
+                },
+                json={
+                    "urls": [url],
+                    "text": True,
+                    "livecrawl": "fallback"  # Use cache first, livecrawl if needed
+                }
+            )
+            
+            response.raise_for_status()
+            data = response.json()
+            
+            # Extract text content
+            results = data.get('results', [])
+            if results and len(results) > 0:
+                text = results[0].get('text', '')
+                
+                # Limit text length
+                if text and len(text) > max_length:
+                    text = text[:max_length] + "...[truncated]"
+                
+                # Store fetch history in context
+                ctx.add_fetch(url, len(text))
+                
+                return text if text else "No text content found"
+            else:
+                return "No content available for this URL"
+                
+    except httpx.HTTPStatusError as e:
+        if e.response.status_code == 401:
+            # Invalid API key, fallback to direct fetch
+            return await _direct_fetch(url, max_length)
+        elif e.response.status_code == 429:
+            return "Exa API rate limit exceeded. Please wait before fetching more content."
+        else:
+            return f"Exa API error: {e.response.status_code} - {e.response.text[:200]}"
+    except Exception as e:
+        # Fallback to direct fetch on any error
+        return await _direct_fetch(url, max_length)
+
+
+async def _direct_fetch(url: str, max_length: int) -> str:
+    """
+    Direct fetch fallback when Exa API is not available.
+    Note: This method may be rate limited by websites.
+    """
+    try:
         async with httpx.AsyncClient(follow_redirects=True, timeout=30.0) as client:
             response = await client.get(
                 url,
                 headers={
-                    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
+                    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+                    "Accept-Language": "en-US,en;q=0.9",
+                    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8"
                 }
             )
             response.raise_for_status()
@@ -161,7 +232,7 @@ async def fetch(url: str, max_length: int = 10000) -> str:
             return text if text else "No text content found"
             
     except httpx.HTTPStatusError as e:
-        return f"HTTP error {e.response.status_code}: {e.response.reason_phrase}"
+        return f"HTTP error {e.response.status_code}: {e.response.reason_phrase} (Note: This URL may be blocking automated access)"
     except httpx.RequestError as e:
         return f"Request error: {str(e)}"
     except Exception as e:
