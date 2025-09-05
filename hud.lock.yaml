@@ -1,12 +1,12 @@
 version: '1.0'
-image: deepresearch:dev@sha256:4887d9106f05712b7f6dd93fafc8712d887bbfa6a22e4f514401fee14a9c59f1
+image: deepresearch:dev@sha256:83d009e89eebead3627b1d529283874bd18cd9addbe377a6f01a803983277683
 build:
-  generatedAt: '2025-09-03T21:24:35.862945Z'
+  generatedAt: '2025-09-04T19:59:32.488427Z'
   hudVersion: 0.4.17
   directory: deepresearch
-  version: 0.1.14
+  version: 0.1.15
 environment:
-  initializeMs: 2046
+  initializeMs: 2195
   toolCount: 5
 tools:
 - name: search
@@ -20,7 +20,7 @@ tools:
         title: Query
         type: string
       max_results:
-        default: 10
+        default: 5
         title: Max Results
         type: integer
     required:
@@ -37,7 +37,7 @@ tools:
         title: Url
         type: string
       max_length:
-        default: 10000
+        default: 5000
         title: Max Length
         type: integer
     required:

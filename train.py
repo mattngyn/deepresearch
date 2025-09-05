@@ -41,9 +41,10 @@ def main():
     args.mask_env_responses = True
     args.max_prompt_length = 2048
     
-    args.per_device_train_batch_size = 4  # Reduced to make: 1 * 4 * 2 = 8
-    args.num_generations = 4    
-    args.gradient_accumulation_steps = 2  # Keep at 4 as system expects
+    args.per_device_train_batch_size = 6  
+    args.num_generations = 6    
+    args.gradient_accumulation_steps = 2 
+    args.shuffle_dataset = False
     
     # Memory optimization settings
     args.gradient_checkpointing = True

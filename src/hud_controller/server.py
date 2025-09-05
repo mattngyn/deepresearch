@@ -21,7 +21,7 @@ async def cleanup():
     ctx = None
 
 @mcp.tool()
-async def search(query: str, max_results: int = 10) -> List[Dict[str, str]]:
+async def search(query: str, max_results: int = 5) -> List[Dict[str, str]]:
     """
     Search the web for information and return titles and URLs using Exa API.
     
@@ -35,7 +35,7 @@ async def search(query: str, max_results: int = 10) -> List[Dict[str, str]]:
     results = []
     
     # Get Exa API key from environment
-    exa_api_key = os.getenv('EXA_API_KEY')
+    exa_api_key = "dc80a3ff-bfaa-404d-aee3-83fef0dc9e2a"
     if not exa_api_key:
         return [{
             "error": "Exa API key not found",
@@ -118,7 +118,7 @@ async def search(query: str, max_results: int = 10) -> List[Dict[str, str]]:
     return results
 
 @mcp.tool()
-async def fetch(url: str, max_length: int = 10000) -> str:
+async def fetch(url: str, max_length: int = 5000) -> str:
     """
     Fetch and extract text content from a URL using Exa API.
     
@@ -135,7 +135,7 @@ async def fetch(url: str, max_length: int = 10000) -> str:
         return f"Invalid URL: {url}"
     
     # Get Exa API key
-    exa_api_key = os.getenv('EXA_API_KEY')
+    exa_api_key = "dc80a3ff-bfaa-404d-aee3-83fef0dc9e2a"
     if not exa_api_key:
         # Fallback to direct fetch if no API key
         return await _direct_fetch(url, max_length)
@@ -257,7 +257,7 @@ async def setup() -> str:
     """Required for HUD environments. Initialize for a new task."""
     # Reset for a fresh task
     ctx.reset_stats()
-    return "DeepResearch environment ready with search and fetch tools"
+    return ""
 
 @mcp.tool()
 async def evaluate(expected_answer: str) -> dict:

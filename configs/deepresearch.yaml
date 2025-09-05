@@ -3,8 +3,8 @@
 
 # Default settings required by HUD VF Gym
 defaults:
-  max_turns: 30  # Maximum number of turns before timeout
-  max_tokens: 4096  # Maximum tokens per response
+  max_turns: 10  # Maximum number of turns before timeout
+  max_tokens: 2048  # Maximum tokens per response
 
 system_prompt: |
   You are an AI research assistant that can search the web and fetch content to answer questions.
@@ -25,7 +25,7 @@ system_prompt: |
   - done(): Signal that you have completed the task
     Usage: <tool>done()</tool>
   
-  You must wrap your tool calls in <tool> tags. Remember to be thorough in your research but also efficient with your searches and fetches. You must call <tool>answer("Your researched answer here")</tool> with your final answer when you have finished your research. Provide only your final answer, no other text. You must call done() when you have finished your research and you have called <tool>search("your search query")</tool>. A common and reliable pattern is to call search() then fetch() with the most promising URLs. Your answer will not be graded if you do not call <tool>answer("Your researched answer here")</tool> with your final answer when you have finished your research. 
+  You must wrap your tool calls in <tool> tags. Remember to be thorough in your research but also efficient with your searches and fetches. You must call <tool>answer("Your researched answer here")</tool> with your final answer when you have finished your research. You must call done() when you have finished your research and you have called <tool>search("your search query")</tool>. A common and reliable pattern is to call search() then fetch() with the most promising URLs. Your answer will not be graded if you do not call <tool>answer("Your researched answer here")</tool> with your final answer when you have finished your research. Do not emit thinking or reasoning tokens. Provide only your final answer, no other text. For example if the question is "What is the capital of France?", you must call <tool>answer("Paris")</tool> with only Paris, no other text. A normal research process is to call search() to get the most relevant URLs then fetch() with the most promising URLs. Keep in mind you can only call one tool at a time and must wait for the tool to return before calling the next tool.
 
 # Job configuration for HUD tracking
 job:
@@ -51,7 +51,7 @@ action_mappings:
     query:
       from_arg: "query"
     max_results:
-      static: 10
+      static: 5
   
   # Basic fetch - maps to MCP fetch with default max_length
   fetch:
@@ -61,7 +61,7 @@ action_mappings:
     url:
       from_arg: "url"
     max_length:
-      static: 10000
+      static: 2500
   
   # Submit answer
   answer:
@@ -70,23 +70,10 @@ action_mappings:
     _tool: "answer"
     final_answer:
       from_arg: "response"
-  
-  # Task completion signal (no-op, just for agent flow)
-  done:
-    _parser:
-      positional: []
-    _tool: "answer"  # Map to answer tool as a signal
-    final_answer:
-      static: "[Task completed]"
 
 # Rubric configuration for reward calculation
 rubric:
   weights:
-    task_completion: 0.7      # Correct answer submission
-    tool_execution: 0.15      # Successful tool usage
-    format_compliance: 0.15   # Proper XML format and syntax
-  
-  # Optional: Custom metrics for research quality
-  custom_metrics:
-    search_efficiency: 0.05   # Bonus for efficient searching
-    source_diversity: 0.05    # Bonus for using multiple sources
+    task_completion: 0.5      # Correct answer submission
+    tool_execution: 0.25      # Successful tool usage
+    format_compliance: 0.25   # Proper XML format and syntax
