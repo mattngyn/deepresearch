@@ -5,14 +5,15 @@ Training Script for Minesweeper (2 GPUs)
 
 Terminal 1 - Start vLLM server:
 
-  CUDA_VISIBLE_DEVICES=0 vf-vllm \
-      --model Qwen/Qwen2.5-7B-Instruct \
+  CUDA_VISIBLE_DEVICES=0,1,2,3 vf-vllm \
+      --model Qwen/Qwen2.5-14B-Instruct \
+      --data-parallel-size 4 \
       --enforce-eager \
       --disable-log-requests
 
   Terminal 2 - Run training:
 
-  CUDA_VISIBLE_DEVICES=1 uv run train.py
+  CUDA_VISIBLE_DEVICES=2,3 uv run accelerate launch --config_file configs/default_config.yaml --num_processes 2 train.py
 
 rm -rf ~/.triton ~/.cache/torch/inductor ~/.cache/torch/extension_cache
 """
@@ -26,7 +27,7 @@ def main():
     )
     
     # 2. Load model and tokenizer
-    model_name = "Qwen/Qwen2.5-7B-Instruct"
+    model_name = "Qwen/Qwen2.5-14B-Instruct"
     model, tokenizer = vf.get_model_and_tokenizer(model_name)
     
     # 3. Configure training using grpo_defaults
@@ -39,12 +40,13 @@ def main():
     args.save_steps = 20
     args.logging_steps = 1
     args.mask_env_responses = True
-    args.max_prompt_length = 2048
+    args.max_prompt_length = 4096
     
-    args.per_device_train_batch_size = 6  
-    args.num_generations = 6    
-    args.gradient_accumulation_steps = 2 
-    args.shuffle_dataset = False
+    args.per_device_train_batch_size = 16  
+    args.num_generations = 16    
+    args.gradient_accumulation_steps = 2
+    args.max_grad_norm = 0.003
+    num_iterations = 1
     
     # Memory optimization settings
     args.gradient_checkpointing = True
@@ -57,6 +59,7 @@ def main():
         processing_class=tokenizer,
         env=env,
         args=args,
+        peft_config=vf.lora_defaults(r=8, alpha=16)
     )
     
     # Start training

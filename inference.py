@@ -5,7 +5,7 @@ from transformers import AutoModelForCausalLM, AutoTokenizer
 PROMPT = "When was the arxiv founded? When you have your final answer, return just the year, no other text."
 
 # Load model and tokenizer
-tokenizer = AutoTokenizer.from_pretrained("Qwen/Qwen2.5-7B-Instruct", trust_remote_code=True)
+tokenizer = AutoTokenizer.from_pretrained("Qwen/Qwen2.5-14B-Instruct", trust_remote_code=True)
 model = AutoModelForCausalLM.from_pretrained(
     "Qwen/Qwen2.5-3B-Instruct",
     torch_dtype=torch.float16 if torch.cuda.is_available() else torch.float32,

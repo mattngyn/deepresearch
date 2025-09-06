@@ -35,7 +35,7 @@ async def search(query: str, max_results: int = 5) -> List[Dict[str, str]]:
     results = []
     
     # Get Exa API key from environment
-    exa_api_key = "dc80a3ff-bfaa-404d-aee3-83fef0dc9e2a"
+    exa_api_key = ""
     if not exa_api_key:
         return [{
             "error": "Exa API key not found",
@@ -57,7 +57,7 @@ async def search(query: str, max_results: int = 5) -> List[Dict[str, str]]:
                 json={
                     "query": query,
                     "numResults": max_results,
-                    "type": "auto",  # Auto-selects between neural and keyword search
+                    "type": "keyword",
                     "userLocation": "us",  # Bias results for US region
                     "contents": {
                         "text": {"maxCharacters": 1000}  # Get text snippets
@@ -135,7 +135,7 @@ async def fetch(url: str, max_length: int = 5000) -> str:
         return f"Invalid URL: {url}"
     
     # Get Exa API key
-    exa_api_key = "dc80a3ff-bfaa-404d-aee3-83fef0dc9e2a"
+    exa_api_key = ""
     if not exa_api_key:
         # Fallback to direct fetch if no API key
         return await _direct_fetch(url, max_length)

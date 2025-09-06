@@ -74,6 +74,6 @@ action_mappings:
 # Rubric configuration for reward calculation
 rubric:
   weights:
-    task_completion: 0.5      # Correct answer submission
-    tool_execution: 0.25      # Successful tool usage
-    format_compliance: 0.25   # Proper XML format and syntax
+    task_completion: 0.7      # Correct answer submission
+    tool_execution: 0.15      # Successful tool usage
+    format_compliance: 0.15   # Proper XML format and syntax
