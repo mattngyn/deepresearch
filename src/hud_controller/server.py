@@ -1,14 +1,27 @@
 """Simple DeepResearch MCP server for HUD."""
-import httpx
 import os
-from bs4 import BeautifulSoup
-from urllib.parse import quote_plus, urlparse
+import json
+from urllib.parse import urlparse
 from hud.server import MCPServer
 from hud.server.context import attach_context
 from typing import List, Dict
 
 mcp = MCPServer(name="deepresearch")
 ctx = None
+
+# Load hardcoded responses - works both locally and in Docker container
+HARDCODED_RESPONSES = {}
+try:
+    # Get the directory where this script is located
+    script_dir = os.path.dirname(os.path.abspath(__file__))
+    json_path = os.path.join(script_dir, "hardcoded_exa_responses.json")
+    
+    with open(json_path, "r") as f:
+        HARDCODED_RESPONSES = json.load(f)
+        print(f"Loaded {len(HARDCODED_RESPONSES.get('search_responses', {}))} search responses and {len(HARDCODED_RESPONSES.get('fetch_responses', {}))} fetch responses", file=os.stderr)
+except Exception as e:
+    print(f"Warning: Could not load hardcoded responses: {e}", file=os.stderr)
+    HARDCODED_RESPONSES = {"search_responses": {}, "fetch_responses": {}}
 
 @mcp.initialize
 async def init(init_ctx):
@@ -32,90 +45,25 @@ async def search(query: str, max_results: int = 5) -> List[Dict[str, str]]:
     Returns:
         List of dictionaries containing 'title' and 'url' for each result
     """
-    results = []
-    
-    # Get Exa API key from environment
-    exa_api_key = ""
-    if not exa_api_key:
-        return [{
-            "error": "Exa API key not found",
-            "message": "Please set EXA_API_KEY environment variable",
-            "instructions": "Get your API key from https://dashboard.exa.ai/home"
-        }]
-    
-    try:
-        # Use Exa search API
-        search_url = "https://api.exa.ai/search"
+    # Check hardcoded responses - ONLY use hardcoded, no fallback
+    if query in HARDCODED_RESPONSES.get("search_responses", {}):
+        hardcoded_results = HARDCODED_RESPONSES["search_responses"][query]
         
-        async with httpx.AsyncClient() as client:
-            response = await client.post(
-                search_url,
-                headers={
-                    "x-api-key": exa_api_key,
-                    "Content-Type": "application/json"
-                },
-                json={
-                    "query": query,
-                    "numResults": max_results,
-                    "type": "keyword",
-                    "userLocation": "us",  # Bias results for US region
-                    "contents": {
-                        "text": {"maxCharacters": 1000}  # Get text snippets
-                    }
-                }
-            )
+        # Ensure the response format matches Exa API exactly
+        if isinstance(hardcoded_results, list):
+            # Limit results to max_results if needed
+            limited_results = hardcoded_results[:max_results] if len(hardcoded_results) > max_results else hardcoded_results
             
-            response.raise_for_status()
-            data = response.json()
+            # Store search history in context (same as real API)
+            ctx.add_search(query, limited_results)
             
-            # Extract results
-            for result in data.get('results', []):
-                title = result.get('title', '')
-                url = result.get('url', '')
-                
-                if title and url:
-                    results.append({
-                        'title': title,
-                        'url': url
-                    })
-            
-            # If no results, provide helpful feedback
-            if not results:
-                return [{
-                    "message": "No results found",
-                    "query": query,
-                    "autopromptString": data.get('autopromptString', query)
-                }]
-                
-    except httpx.HTTPStatusError as e:
-        if e.response.status_code == 401:
-            return [{
-                "error": "Invalid Exa API key",
-                "message": "Please check your EXA_API_KEY environment variable",
-                "status_code": str(e.response.status_code)
-            }]
-        elif e.response.status_code == 429:
-            return [{
-                "error": "Exa API rate limit exceeded",
-                "message": "Please wait before making more requests",
-                "status_code": str(e.response.status_code)
-            }]
-        else:
-            return [{
-                "error": f"Exa API error: {e.response.status_code}",
-                "message": str(e),
-                "response": e.response.text[:500]
-            }]
-    except Exception as e:
-        return [{
-            "error": f"Search failed: {type(e).__name__}",
-            "message": str(e)
-        }]
+            return limited_results
     
-    # Store search history in context
-    ctx.add_search(query, results)
-    
-    return results
+    # Query not found in hardcoded responses
+    return [{
+        "error": "Query not supported",
+        "message": "Please perform another query. This query is not available in the hardcoded responses."
+    }]
 
 @mcp.tool()
 async def fetch(url: str, max_length: int = 5000) -> str:
@@ -134,109 +82,24 @@ async def fetch(url: str, max_length: int = 5000) -> str:
     if not parsed.scheme or not parsed.netloc:
         return f"Invalid URL: {url}"
     
-    # Get Exa API key
-    exa_api_key = ""
-    if not exa_api_key:
-        # Fallback to direct fetch if no API key
-        return await _direct_fetch(url, max_length)
-    
-    try:
-        # Use Exa contents API for reliable fetching
-        contents_url = "https://api.exa.ai/contents"
+    # Check hardcoded responses - ONLY use hardcoded, no fallback
+    if url in HARDCODED_RESPONSES.get("fetch_responses", {}):
+        hardcoded_content = HARDCODED_RESPONSES["fetch_responses"][url]
         
-        async with httpx.AsyncClient() as client:
-            response = await client.post(
-                contents_url,
-                headers={
-                    "x-api-key": exa_api_key,
-                    "Content-Type": "application/json"
-                },
-                json={
-                    "urls": [url],
-                    "text": True,
-                    "livecrawl": "fallback"  # Use cache first, livecrawl if needed
-                }
-            )
+        # Ensure it's a string (matching Exa fetch response format)
+        if isinstance(hardcoded_content, str):
+            # Apply the same length limit as real fetch
+            if len(hardcoded_content) > max_length:
+                hardcoded_content = hardcoded_content[:max_length] + "...[truncated]"
             
-            response.raise_for_status()
-            data = response.json()
+            # Store fetch history in context (same as real API)
+            ctx.add_fetch(url, len(hardcoded_content))
             
-            # Extract text content
-            results = data.get('results', [])
-            if results and len(results) > 0:
-                text = results[0].get('text', '')
-                
-                # Limit text length
-                if text and len(text) > max_length:
-                    text = text[:max_length] + "...[truncated]"
-                
-                # Store fetch history in context
-                ctx.add_fetch(url, len(text))
-                
-                return text if text else "No text content found"
-            else:
-                return "No content available for this URL"
-                
-    except httpx.HTTPStatusError as e:
-        if e.response.status_code == 401:
-            # Invalid API key, fallback to direct fetch
-            return await _direct_fetch(url, max_length)
-        elif e.response.status_code == 429:
-            return "Exa API rate limit exceeded. Please wait before fetching more content."
-        else:
-            return f"Exa API error: {e.response.status_code} - {e.response.text[:200]}"
-    except Exception as e:
-        # Fallback to direct fetch on any error
-        return await _direct_fetch(url, max_length)
+            return hardcoded_content
+    
+    # URL not found in hardcoded responses
+    return "URL not supported. Please use another URL. This URL is not available in the hardcoded responses."
 
-
-async def _direct_fetch(url: str, max_length: int) -> str:
-    """
-    Direct fetch fallback when Exa API is not available.
-    Note: This method may be rate limited by websites.
-    """
-    try:
-        async with httpx.AsyncClient(follow_redirects=True, timeout=30.0) as client:
-            response = await client.get(
-                url,
-                headers={
-                    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
-                    "Accept-Language": "en-US,en;q=0.9",
-                    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8"
-                }
-            )
-            response.raise_for_status()
-            
-            # Parse HTML and extract text
-            soup = BeautifulSoup(response.text, 'lxml')
-            
-            # Remove script and style elements
-            for script in soup(["script", "style"]):
-                script.decompose()
-            
-            # Get text
-            text = soup.get_text()
-            
-            # Clean up text
-            lines = (line.strip() for line in text.splitlines())
-            chunks = (phrase.strip() for line in lines for phrase in line.split("  "))
-            text = ' '.join(chunk for chunk in chunks if chunk)
-            
-            # Limit text length
-            if len(text) > max_length:
-                text = text[:max_length] + "...[truncated]"
-            
-            # Store fetch history in context
-            ctx.add_fetch(url, len(text))
-            
-            return text if text else "No text content found"
-            
-    except httpx.HTTPStatusError as e:
-        return f"HTTP error {e.response.status_code}: {e.response.reason_phrase} (Note: This URL may be blocking automated access)"
-    except httpx.RequestError as e:
-        return f"Request error: {str(e)}"
-    except Exception as e:
-        return f"Error fetching URL: {str(e)}"
 
 @mcp.tool()
 async def answer(final_answer: str) -> str:
