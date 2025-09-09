@@ -13,7 +13,7 @@ Terminal 1 - Start vLLM server:
 
   Terminal 2 - Run training:
 
-  CUDA_VISIBLE_DEVICES=2,3 uv run accelerate launch --config_file configs/default_config.yaml --num_processes 2 train.py
+  CUDA_VISIBLE_DEVICES=4,5,6,7 uv run accelerate launch --config_file configs/default_config.yaml --num_processes 4 train.py
 
 rm -rf ~/.triton ~/.cache/torch/inductor ~/.cache/torch/extension_cache
 """
@@ -22,7 +22,7 @@ import verifiers as vf
 def main():
     env = vf.load_environment(
         env_id="hud-vf-gym",
-        taskset="kizro/deep_research_taskset",  
+        taskset="kizro/deep_research_taskset-50rows_filtered",  
         config_path="./configs/deepresearch.yaml",
     )
     
@@ -41,12 +41,13 @@ def main():
     args.logging_steps = 1
     args.mask_env_responses = True
     args.max_prompt_length = 4096
+    args.beta = 0   
     
     args.per_device_train_batch_size = 16  
     args.num_generations = 16    
     args.gradient_accumulation_steps = 2
     args.max_grad_norm = 0.003
-    num_iterations = 1
+    args.learning_rate = 5e-5
     
     # Memory optimization settings
     args.gradient_checkpointing = True

@@ -12,7 +12,7 @@ class ExaClient:
     
     def __init__(self, api_key: Optional[str] = None):
         """Initialize with API key from parameter or environment."""
-        self.api_key = ""
+        self.api_key = "2345f9e9-ceda-4a07-982f-63d459a6f1be"
         self.search_url = "https://api.exa.ai/search"
         self.contents_url = "https://api.exa.ai/contents"
     

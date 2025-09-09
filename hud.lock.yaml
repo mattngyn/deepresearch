@@ -1,12 +1,12 @@
 version: '1.0'
-image: deepresearch:dev@sha256:b98c1256559dfe2f45cd1057a4660c2ccde96d2a8181040f05f44d144d629057
+image: deepresearch:dev@sha256:f6c7fe06334bec7f7f5f8d0521aded45c15703f2521108b17a19ff1f508b1e03
 build:
-  generatedAt: '2025-09-06T00:43:52.833369Z'
+  generatedAt: '2025-09-08T23:18:55.749259Z'
   hudVersion: 0.4.17
   directory: deepresearch
-  version: 0.1.19
+  version: 0.1.25
 environment:
-  initializeMs: 2039
+  initializeMs: 1705
   toolCount: 5
 tools:
 - name: search
@@ -29,7 +29,7 @@ tools:
 - name: fetch
   description: "Fetch and extract text content from a URL using Exa API.\n\nArgs:\n\
     \    url: The URL to fetch content from\n    max_length: Maximum length of text\
-    \ to return (default: 10000 characters)\n\nReturns:\n    Extracted text content\
+    \ to return (default: 2500 characters)\n\nReturns:\n    Extracted text content\
     \ from the webpage"
   inputSchema:
     properties:
@@ -37,7 +37,7 @@ tools:
         title: Url
         type: string
       max_length:
-        default: 5000
+        default: 2500
         title: Max Length
         type: integer
     required:

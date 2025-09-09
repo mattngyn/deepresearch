@@ -1,6 +1,8 @@
 """Simple DeepResearch MCP server for HUD."""
 import os
+import sys
 import json
+import string
 from urllib.parse import urlparse
 from hud.server import MCPServer
 from hud.server.context import attach_context
@@ -18,10 +20,18 @@ try:
     
     with open(json_path, "r") as f:
         HARDCODED_RESPONSES = json.load(f)
-        print(f"Loaded {len(HARDCODED_RESPONSES.get('search_responses', {}))} search responses and {len(HARDCODED_RESPONSES.get('fetch_responses', {}))} fetch responses", file=os.stderr)
+        print(f"Loaded {len(HARDCODED_RESPONSES.get('search_responses', {}))} search responses and {len(HARDCODED_RESPONSES.get('fetch_responses', {}))} fetch responses", file=sys.stderr)
 except Exception as e:
-    print(f"Warning: Could not load hardcoded responses: {e}", file=os.stderr)
+    print(f"Warning: Could not load hardcoded responses: {e}", file=sys.stderr)
     HARDCODED_RESPONSES = {"search_responses": {}, "fetch_responses": {}}
+
+def normalize_text(text: str) -> str:
+    """Normalize text by removing punctuation and converting to lowercase."""
+    # Remove all punctuation
+    translator = str.maketrans('', '', string.punctuation)
+    normalized = text.translate(translator)
+    # Convert to lowercase and strip whitespace
+    return normalized.lower().strip()
 
 @mcp.initialize
 async def init(init_ctx):
@@ -45,9 +55,20 @@ async def search(query: str, max_results: int = 5) -> List[Dict[str, str]]:
     Returns:
         List of dictionaries containing 'title' and 'url' for each result
     """
-    # Check hardcoded responses - ONLY use hardcoded, no fallback
-    if query in HARDCODED_RESPONSES.get("search_responses", {}):
-        hardcoded_results = HARDCODED_RESPONSES["search_responses"][query]
+    # Normalize the incoming query
+    normalized_query = normalize_text(query)
+    
+    # Create a mapping of normalized keys to original keys
+    normalized_mapping = {}
+    for original_key in HARDCODED_RESPONSES.get("search_responses", {}):
+        normalized_key = normalize_text(original_key)
+        normalized_mapping[normalized_key] = original_key
+    
+    # Check if normalized query exists in normalized mapping
+    if normalized_query in normalized_mapping:
+        # Get the original key and its results
+        original_key = normalized_mapping[normalized_query]
+        hardcoded_results = HARDCODED_RESPONSES["search_responses"][original_key]
         
         # Ensure the response format matches Exa API exactly
         if isinstance(hardcoded_results, list):
@@ -62,17 +83,17 @@ async def search(query: str, max_results: int = 5) -> List[Dict[str, str]]:
     # Query not found in hardcoded responses
     return [{
         "error": "Query not supported",
-        "message": "Please perform another query. This query is not available in the hardcoded responses."
+        "message": "Please perform another query. A common and reliable pattern is to call search() with the exact question as the search query then fetch() with the most promising URLs."
     }]
 
 @mcp.tool()
-async def fetch(url: str, max_length: int = 5000) -> str:
+async def fetch(url: str, max_length: int = 2500) -> str:
     """
     Fetch and extract text content from a URL using Exa API.
     
     Args:
         url: The URL to fetch content from
-        max_length: Maximum length of text to return (default: 10000 characters)
+        max_length: Maximum length of text to return (default: 2500 characters)
     
     Returns:
         Extracted text content from the webpage
@@ -98,7 +119,7 @@ async def fetch(url: str, max_length: int = 5000) -> str:
             return hardcoded_content
     
     # URL not found in hardcoded responses
-    return "URL not supported. Please use another URL. This URL is not available in the hardcoded responses."
+    return "URL not supported. Please use another URL."
 
 
 @mcp.tool()

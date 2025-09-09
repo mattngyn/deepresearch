@@ -4,20 +4,10 @@ import json
 from textexa import search, fetch
 from datetime import datetime
 import time
+from get_prompts_simple import get_cleaned_prompts
 
 # Define the queries and URLs you want to test
-SEARCH_QUERIES = [
-    "Who received the IEEE Frank Rosenblatt Award in 2010?",
-    "Who was awarded the Oceanography Society's Jerlov Award in 2018?", 
-    "What year did the Lego part with ID gal56 first release?",
-    "In which year did the Japanese scientist Koichi Mizushima receive the Kato Memorial Prize?",
-    "What player scored all the conversions for Spain in the rugby match between Spain and Romania that was part of the 2022 Rugby Europe Championship on February 27, 2022?",
-    "What is the surname of the psychiatrist who prescribes medication for Marie Hanson for her periodic blackouts in Season 1, Episode 20 of Ally McBeal?",
-    "What is the British-American kickboxer Andrew Tate's kickboxing name? Return just the answer, no other text.",
-    "What instrument did Alec Aitken play well enough for a professional musician to remark, 'Aitken is the most accomplished amateur musician I have ever known'?",
-    "On what day, month, and year did Tara Chand (a politician and a Dalit leader from Jammu and Kashmir) resign from the Indian National Congress in support of Ghulam Nabi Azad?",
-    "What is the first and last name of the woman whom the British linguist Bernard Comrie married in 1985?"
-]
+SEARCH_QUERIES = get_cleaned_prompts("kizro/deep_research_taskset-50rows")
 
 FETCH_URLS = [
 ]

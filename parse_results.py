@@ -2,10 +2,16 @@
 """
 Parse raw results text and show, for each task, the 0/1 reward over all runs.
 
+Supports two input formats:
+1. Original format with task=[] and reward=[] or metrics={}
+2. res.txt format with lines like: "2025-09-08 22:06:18 - verifiers.scripts.eval - INFO - r1: [1.0, 0.0, ...]"
+
 Usage:
-  python runs_by_task.py < raw.txt > runs.csv
+  python parse_results.py < raw.txt > runs.csv
   # or force 10 runs and print Markdown:
-  python runs_by_task.py --runs 10 --format md < raw.txt > runs.md
+  python parse_results.py --runs 10 --format md < raw.txt > runs.md
+  # for res.txt format:
+  python parse_results.py --format md --input-format res < res.txt > runs.md
 """
 import re
 import ast
@@ -24,6 +30,39 @@ def extract_metrics_field(field: str, text: str):
         return None
     metrics = ast.literal_eval(m.group(1))
     return metrics.get(field)
+
+def parse_res_txt_format(text: str):
+    """Parse res.txt format and return (tasks, binary_results)"""
+    # Pattern to match lines like: "... - INFO - r1: [1.0, 0.0, ...]"
+    pattern = r"INFO\s*-\s*(r\d+):\s*(\[[\d.,\s]+\])"
+    
+    runs = {}
+    for match in re.finditer(pattern, text):
+        run_id = match.group(1)
+        values_str = match.group(2)
+        values = ast.literal_eval(values_str)
+        runs[run_id] = [int(v) for v in values]
+    
+    if not runs:
+        return None, None
+    
+    # Sort runs by numeric order (r1, r2, ..., r10, r11, ...)
+    sorted_runs = sorted(runs.items(), key=lambda x: int(x[0][1:]))
+    
+    # Determine number of tasks from first run
+    num_tasks = len(sorted_runs[0][1])
+    
+    # Create task names
+    tasks = []
+    binary = []
+    
+    # For each run, add all tasks
+    for run_id, values in sorted_runs:
+        for i in range(num_tasks):
+            tasks.append(f"task_{i}")
+            binary.append(values[i])
+    
+    return tasks, binary
 
 def deduce_runs_per_task(tasks):
     c = Counter(tasks)
@@ -90,24 +129,34 @@ def main():
                     help="Force runs-per-task (default: auto-detect). Use 10 for your case.")
     ap.add_argument("--format", choices=["csv", "md"], default="csv",
                     help="Output format (csv or md). Default: csv.")
+    ap.add_argument("--input-format", choices=["original", "res"], default="original",
+                    help="Input format: 'original' for task=/reward= format, 'res' for res.txt format. Default: original.")
     args = ap.parse_args()
 
     raw = sys.stdin.read()
 
-    tasks = extract_list("task", raw)
-    if tasks is None:
-        sys.stderr.write("Error: couldn't find task=[...]\n")
-        sys.exit(1)
+    if args.input_format == "res":
+        # Parse res.txt format
+        tasks, binary = parse_res_txt_format(raw)
+        if tasks is None or binary is None:
+            sys.stderr.write("Error: couldn't parse res.txt format. Expected lines like: '... - INFO - r1: [1.0, 0.0, ...]'\n")
+            sys.exit(1)
+    else:
+        # Original format parsing
+        tasks = extract_list("task", raw)
+        if tasks is None:
+            sys.stderr.write("Error: couldn't find task=[...]\n")
+            sys.exit(1)
 
-    # Prefer binary from metrics['hud_task_reward_func']
-    binary = extract_metrics_field("hud_task_reward_func", raw)
-    if binary is None:
-        # Fallback: threshold the continuous 'reward' list
-        reward = extract_list("reward", raw)
-        if reward is None:
-            sys.stderr.write("Error: neither metrics['hud_task_reward_func'] nor reward=[...] found\n")
-            sys.exit(2)
-        binary = [1 if float(x) >= 0.5 else 0 for x in reward]
+        # Prefer binary from metrics['hud_task_reward_func']
+        binary = extract_metrics_field("hud_task_reward_func", raw)
+        if binary is None:
+            # Fallback: threshold the continuous 'reward' list
+            reward = extract_list("reward", raw)
+            if reward is None:
+                sys.stderr.write("Error: neither metrics['hud_task_reward_func'] nor reward=[...] found\n")
+                sys.exit(2)
+            binary = [1 if float(x) >= 0.5 else 0 for x in reward]
 
     ordered_tasks, by_task, runs_per_task = group_binary(tasks, binary, args.runs)
 
