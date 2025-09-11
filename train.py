@@ -15,6 +15,18 @@ Terminal 1 - Start vLLM server:
 
   CUDA_VISIBLE_DEVICES=4,5,6,7 uv run accelerate launch --config_file configs/default_config.yaml --num_processes 4 train.py
 
+sudo usermod -aG docker $USER
+newgrp docker
+
+export NCCL_P2P_DISABLE=1
+export NCCL_SHM_DISABLE=1    
+
+tmux new -s vllm
+tmux new -s train
+
+tmux attach -t session_name
+tmux kill-session -t session_name
+
 rm -rf ~/.triton ~/.cache/torch/inductor ~/.cache/torch/extension_cache
 """
 import verifiers as vf
@@ -40,12 +52,12 @@ def main():
     args.save_steps = 20
     args.logging_steps = 1
     args.mask_env_responses = True
-    args.max_prompt_length = 4096
+    args.max_prompt_length = 512
     args.beta = 0   
     
     args.per_device_train_batch_size = 16  
     args.num_generations = 16    
-    args.gradient_accumulation_steps = 2
+    args.gradient_accumulation_steps = 1
     args.max_grad_norm = 0.003
     args.learning_rate = 5e-5
     

@@ -3,8 +3,8 @@
 
 # Default settings required by HUD VF Gym
 defaults:
-  max_turns: 10  # Maximum number of turns before timeout
-  max_tokens: 2048  # Maximum tokens per response
+  max_turns: 5  # Maximum number of turns before timeout
+  max_tokens: 512  # Maximum tokens per response
 
 system_prompt: |
   You are an AI research assistant that can search the web and fetch content to answer questions.
