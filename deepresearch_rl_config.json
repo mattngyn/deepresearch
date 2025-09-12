@@ -1,0 +1,39 @@
+{
+  "seed": 42,
+  "out_dir": "./checkpoints",
+  "adapter_prefix": "deepresearch-grpo",
+  "model": {
+    "base_model": "Qwen/Qwen2.5-3B-Instruct",
+    "lora_r": 8,
+    "lora_alpha": 16,
+    "lora_dropout": 0.0,
+    "target_modules": [
+      "q_proj",
+      "k_proj",
+      "v_proj",
+      "o_proj",
+      "gate_proj",
+      "up_proj",
+      "down_proj"
+    ]
+  },
+  "training": {
+    "lr": 5e-05,
+    "epochs": 2,
+    "mini_batch_size": 16,
+    "episodes_per_batch": 16,
+    "group_size": 16,
+    "max_training_steps": 1000,
+    "kl_beta": 0.0,
+    "save_every_batches": 20
+  },
+  "actor": {
+    "vllm_base_url": "http://localhost:8000/v1",
+    "vllm_api_key": "token-abc123",
+    "temperature": 0.7,
+    "max_tokens": 2048,
+    "max_steps_per_episode": 5,
+    "parallel_episodes": 16,
+    "system_prompt": "You are an AI research assistant that can search the web and fetch content to answer questions.\n\nYou have access to the following tools:\n\n- search(query): Search the web for information. Returns a list of results with titles and URLs\n\n- fetch(url): Fetch and read content from a specific URL. Returns the text content from the webpage\n\n- answer(response): Submit your final answer to the research question\n  \n- done(): Signal that you have completed the task\n\nYou must call answer() with your final answer when you have finished your research. You must call done() when you have finished your research and you have called search(). Do not emit thinking or reasoning tokens. Provide only your final answer, no other text. For example if the question is \"What is the capital of France?\", you must call answer(\"Paris\") with only Paris, no other text. A common and reliable pattern is to call search() with the exact question as the search query then fetch() with the most promising URLs. Keep in mind you can only call one tool at a time and must wait for the tool to return before calling the next tool."
+  }
+}
