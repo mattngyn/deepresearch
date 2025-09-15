@@ -4,6 +4,7 @@ Convert Hugging Face dataset basicv8vc/SimpleQA (split: test)
 into DeepResearch 'tasks' format and save with hud.datasets.save_tasks.
 """
 
+import json
 import uuid
 from typing import List, Dict
 
@@ -11,11 +12,23 @@ from datasets import load_dataset
 from hud.datasets import save_tasks
 
 
+def load_system_prompt():
+    """Load system prompt from deepresearch_rl_config.json"""
+    try:
+        with open("deepresearch_rl_config.json", "r") as f:
+            config = json.load(f)
+            return config.get("actor", {}).get("system_prompt", "")
+    except Exception as e:
+        print(f"Warning: Could not load system prompt: {e}")
+        return ""
+
+
 def make_tasks(
     split: str,
     limit: int,
     docker_image: str,
     append_answer_instruction: bool,
+    system_prompt: str,
 ) -> List[Dict]:
     # Load dataset
     ds = load_dataset("basicv8vc/SimpleQA", split=split)
@@ -53,6 +66,7 @@ def make_tasks(
                 "name": "evaluate",
                 "arguments": {"expected_answer": answer},
             },
+            "system_prompt": system_prompt,
         }
 
         tasks.append(task)
@@ -64,14 +78,19 @@ def main():
     # -----------------------------
     # EDIT THESE VARIABLES AS NEEDED
     # -----------------------------
-    repo_id = "kizro/deep_research_taskset"  # destination for save_tasks
+    repo_id = "kizro/deep_research_taskset_full"  # destination for save_tasks
     split = "test"                           # dataset split
-    limit = 1000                              # 0 = all rows, or e.g. 100
+    limit = 500                              # 0 = all rows, or e.g. 100
     docker_image = "deepresearch:dev"        # docker image
     append_answer_instruction = True         # add instruction to prompt
     # -----------------------------
 
-    tasks = make_tasks(split, limit, docker_image, append_answer_instruction)
+    # Load system prompt from config
+    system_prompt = load_system_prompt()
+    if system_prompt:
+        print(f"Loaded system prompt: {system_prompt[:50]}...")
+    
+    tasks = make_tasks(split, limit, docker_image, append_answer_instruction, system_prompt)
     print(f"Built {len(tasks)} tasks.")
     save_tasks(tasks, repo_id)
 
