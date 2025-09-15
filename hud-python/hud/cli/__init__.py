@@ -6,6 +6,7 @@ import asyncio
 import json
 import sys
 from pathlib import Path
+from typing import Optional
 
 import typer
 from rich.console import Console
@@ -182,7 +183,7 @@ def debug(
         hud debug . --max-phase 3               # Stop after phase 3
     """
     # Import here to avoid circular imports
-    from hud.utils.design import HUDDesign
+    from hud.utils.hud_console import HUDConsole
 
     from .utils.environment import (
         build_environment,
@@ -191,7 +192,7 @@ def debug(
         is_environment_directory,
     )
 
-    design = HUDDesign()
+    hud_console = HUDConsole()
 
     # Determine the command to run
     command = None
@@ -225,7 +226,7 @@ def debug(
             image_name, source = get_image_name(directory)
 
             if source == "auto":
-                design.info(f"Auto-generated image name: {image_name}")
+                hud_console.info(f"Auto-generated image name: {image_name}")
 
             # Build if requested or if image doesn't exist
             if build or not image_exists(image_name):
@@ -261,20 +262,20 @@ def debug(
     phases_completed = asyncio.run(debug_mcp_stdio(command, logger, max_phase=max_phase))
 
     # Show summary using design system
-    from hud.utils.design import HUDDesign
+    from hud.utils.hud_console import HUDConsole
 
-    design = HUDDesign()
+    hud_console = HUDConsole()
 
-    design.info("")  # Empty line
-    design.section_title("Debug Summary")
+    hud_console.info("")  # Empty line
+    hud_console.section_title("Debug Summary")
 
     if phases_completed == max_phase:
-        design.success(f"All {max_phase} phases completed successfully!")
+        hud_console.success(f"All {max_phase} phases completed successfully!")
         if max_phase == 5:
-            design.info("Your MCP server is fully functional and ready for production use.")
+            hud_console.info("Your MCP server is fully functional and ready for production use.")
     else:
-        design.warning(f"Completed {phases_completed} out of {max_phase} phases")
-        design.info("Check the errors above for troubleshooting.")
+        hud_console.warning(f"Completed {phases_completed} out of {max_phase} phases")
+        hud_console.info("Check the errors above for troubleshooting.")
 
     # Exit with appropriate code
     if phases_completed < max_phase:
@@ -784,7 +785,7 @@ def eval(
         None,
         "--agent",
         help=(
-            "Agent backend to use (claude or openai). If not provided, will prompt interactively."
+            "Agent backend to use (claude, openai, or vllm). If not provided, will prompt interactively."
         ),
     ),
     model: str | None = typer.Option(
@@ -827,11 +828,21 @@ def eval(
         "--verbose",
         help="Enable verbose output from the agent",
     ),
+    vllm_base_url: str | None = typer.Option(
+        None,
+        "--vllm-base-url",
+        help="Base URL for vLLM server (when using --agent vllm)",
+    ),
+    group_size: int = typer.Option(
+        1,
+        "--group-size",
+        help="Number of times to run each task (similar to RL training)",
+    ),
 ) -> None:
     """🚀 Run evaluation on datasets or individual tasks with agents."""
-    from hud.utils.design import HUDDesign
+    from hud.utils.hud_console import HUDConsole
 
-    design = HUDDesign()
+    hud_console = HUDConsole()
 
     # If no source provided, look for task/eval JSON files in current directory
     if source is None:
@@ -861,53 +872,75 @@ def eval(
         json_files = sorted(set(json_files))
 
         if not json_files:
-            design.error(
+            hud_console.error(
                 "No source provided and no task/eval JSON files found in current directory"
             )
-            design.info(
+            hud_console.info(
                 "Usage: hud eval <source> or create a task JSON file "
                 "(e.g., task.json, eval_config.json)"
             )
             raise typer.Exit(1)
         elif len(json_files) == 1:
             source = str(json_files[0])
-            design.info(f"Found task file: {source}")
+            hud_console.info(f"Found task file: {source}")
         else:
             # Multiple files found, let user choose
-            design.info("Multiple task files found:")
-            file_choice = design.select(
+            hud_console.info("Multiple task files found:")
+            file_choice = hud_console.select(
                 "Select a task file to run:",
                 choices=[str(f) for f in json_files],
             )
             source = file_choice
-            design.success(f"Selected: {source}")
-
-    # If no agent specified, prompt for selection
-    if agent is None:
-        agent = design.select(
-            "Select an agent to use:",
-            choices=[
-                {"name": "Claude 4 Sonnet", "value": "claude"},
-                {"name": "OpenAI Computer Use", "value": "openai"},
-            ],
-            default="Claude 4 Sonnet",
-        )
-
-    # Validate agent choice
-    valid_agents = ["claude", "openai"]
-    if agent not in valid_agents:
-        design.error(f"Invalid agent: {agent}. Must be one of: {', '.join(valid_agents)}")
-        raise typer.Exit(1)
+            hud_console.success(f"Selected: {source}")
 
     # Import eval_command lazily to avoid importing agent dependencies
     try:
-        from .eval import eval_command
+        from .eval import eval_command, get_available_models
     except ImportError as e:
-        design.error(
+        hud_console.error(
             "Evaluation dependencies are not installed. "
             "Please install with: pip install 'hud-python[agent]'"
         )
         raise typer.Exit(1) from e
+
+    # If no agent specified, fetch available models and prompt for selection
+    if agent is None:
+        # Get available HUD models first
+        hud_models = get_available_models()
+        
+        # Build choices starting with HUD models
+        choices = []
+        
+        # Add HUD models as agent choices
+        for hud_model in hud_models:
+            model_name = hud_model["name"]
+            vllm_status = " ⚡" if hud_model.get("vllm_url") else ""
+            choices.append({"name": f"🚀 {model_name}{vllm_status}", "value": f"hud:{model_name}"})
+        
+        # Add standard agent choices
+        choices.extend([
+            {"name": "Claude 4 Sonnet", "value": "claude"},
+            {"name": "OpenAI Computer Use", "value": "openai"},
+            {"name": "vLLM (Local Server)", "value": "vllm"},
+        ])
+        
+        agent = hud_console.select(
+            "Select an agent to use:",
+            choices=choices,
+            default=choices[0]["value"] if hud_models else "Claude 4 Sonnet",
+        )
+
+    # Handle HUD model selection
+    if agent and agent.startswith("hud:"):
+        model = agent.split(":", 1)[1]
+        agent = "vllm"  # Use vLLM backend for HUD models
+        hud_console.info(f"Using HUD model: {model}")
+    
+    # Validate agent choice
+    valid_agents = ["claude", "openai", "vllm"]
+    if agent not in valid_agents:
+        hud_console.error(f"Invalid agent: {agent}. Must be one of: {', '.join(valid_agents)}")
+        raise typer.Exit(1)
 
     # Run the command
     eval_command(
@@ -922,6 +955,8 @@ def eval(
         max_workers=max_workers,
         max_concurrent_per_worker=max_concurrent_per_worker,
         verbose=verbose,
+        vllm_base_url=vllm_base_url,
+        group_size=group_size,
     )
 
 
@@ -993,6 +1028,42 @@ def rl(
         "--restart",
         help="Restart the vLLM server before training",
     ),
+    verbose: bool = typer.Option(
+        False,
+        "--verbose",
+        "-v",
+        help="Enable verbose output",
+    ),
+    local: bool = typer.Option(
+        False,
+        "--local",
+        help="Run training locally instead of using remote API server",
+    ),
+    modal: bool = typer.Option(
+        False,
+        "--modal",
+        help="Run training on Modal",
+    ),
+    gpu: str = typer.Option(
+        "H100:2",
+        "--gpu",
+        help="GPU type to use for training",
+    ),
+    no_ddp: bool = typer.Option(
+        False,
+        "--no-ddp",
+        help="Disable DDP even with multiple GPUs",
+    ),
+    ddp_gpus: str | None = typer.Option(
+        None,
+        "--ddp-gpus",
+        help="Specific GPUs for DDP (e.g., '0,1,2,3')",
+    ),
+    vllm_gpu: int | None = typer.Option(
+        None,
+        "--vllm-gpu",
+        help="Specific GPU for vLLM server",
+    ),
 ) -> None:
     """🎯 Run GRPO reinforcement learning training on tasks."""
     # Import from the rl module
@@ -1004,11 +1075,28 @@ def rl(
         config_file=config_file,
         output_dir=output_dir,
         restart=restart,
+        verbose=verbose,
+        local=local,
+        modal=modal,
+        modal_gpu=gpu,
+        no_ddp=no_ddp,
+        ddp_gpus=ddp_gpus,
+        vllm_gpu=vllm_gpu,
     )
 
 
 def main() -> None:
-    """Main entry point for the CLI."""
+    """Main entry point for the CLI."""    
+    # Handle --version flag before Typer parses args
+    if "--version" in sys.argv:
+        try:
+            from hud import __version__
+
+            console.print(f"HUD CLI version: [cyan]{__version__}[/cyan]")
+        except ImportError:
+            console.print("HUD CLI version: [cyan]unknown[/cyan]")
+        return
+
     try:
         # Show header for main help
         if len(sys.argv) == 1 or (len(sys.argv) == 2 and sys.argv[1] in ["--help", "-h"]):
@@ -1030,9 +1118,9 @@ def main() -> None:
             console.print("\n[yellow]Datasets & RL Training:[/yellow]")
             console.print("  1. Get dataset: [cyan]hud get hud-evals/browser-2048-tasks[/cyan]")
             console.print("  2. Create dataset: [cyan]hud hf tasks.json --name my-org/my-tasks[/cyan]")
-            console.print("  3. Start training: [cyan]hud rl browser-2048-tasks.jsonl[/cyan]")
-            console.print("  4. Custom model: [cyan]hud rl tasks.jsonl --model meta-llama/Llama-3.2-3B[/cyan]")
-            console.print("  5. Restart server: [cyan]hud rl tasks.jsonl --restart[/cyan]\n")
+            console.print("  3. Start training: [cyan]hud rl browser-2048-tasks.jsonl --local[/cyan]")
+            console.print("  4. Custom model: [cyan]hud rl tasks.jsonl --model meta-llama/Llama-3.2-3B --local[/cyan]")
+            console.print("  5. Restart server: [cyan]hud rl tasks.jsonl --restart --local[/cyan]\n")
 
         app()
     except typer.Exit as e:
@@ -1042,9 +1130,9 @@ def main() -> None:
         except Exception:
             exit_code = 1
         if exit_code != 0:
-            from hud.utils.design import design
+            from hud.utils.hud_console import hud_console
 
-            design.info(SUPPORT_HINT)
+            hud_console.info(SUPPORT_HINT)
         raise
     except Exception:
         raise

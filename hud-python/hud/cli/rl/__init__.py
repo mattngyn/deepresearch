@@ -1,4 +1,5 @@
 """RL training command for HUD CLI."""
+from __future__ import annotations
 
 import asyncio
 import json
@@ -7,40 +8,41 @@ import os
 import subprocess
 import sys
 from pathlib import Path
-from typing import Optional, List, Union
 
 import typer
 from rich.console import Console
-from rich.progress import Progress
 
-# Import local modules first
-from .gpu import detect_cuda_devices, validate_gpu_memory, select_gpu_for_vllm
-from .presets import get_training_presets, estimate_memory_usage
-from .vllm import check_vllm_server, start_vllm_server, wait_for_vllm_server, kill_vllm_server
-from .display import display_gpu_info, display_config_summary
-from .config import generate_config_interactive, save_config, load_config
+from hud.rl.config import Config, validate_vl_model
+from hud.rl.train import train
 
 # Then import HUD modules
-from hud.utils.design import design
-from hud.rl.utils import load_tasks
-from hud.rl.train import train
-from hud.datasets import Task
+from hud.utils.hud_console import hud_console
+from hud.utils.tasks import load_tasks
+
+from .config import generate_config_interactive, load_config, save_config
+from .display import display_config_summary, display_gpu_info
+
+# Import local modules first
+from .gpu import detect_cuda_devices, validate_gpu_memory
+from .gpu_utils import adjust_config_for_ddp, calculate_optimal_gpu_allocation, health_check_gpus
+from .presets import get_training_presets
+from .vllm import start_vllm_server, wait_for_vllm_server
 
 console = Console()
 
 
 def rl_command(
-    tasks_file: Optional[str] = typer.Argument(
+    tasks_file: str | None = typer.Argument(
         None,
         help="Path to tasks file (JSON/JSONL) or HuggingFace dataset name",
     ),
-    model: Optional[str] = typer.Option(
+    model: str | None = typer.Option(
         None,
         "--model",
         "-m",
         help="Model to train (default: interactive selection)",
     ),
-    config_file: Optional[Path] = typer.Option(
+    config_file: Path | None = typer.Option(
         None,
         "--config",
         "-c",
@@ -62,6 +64,44 @@ def rl_command(
         "--verbose",
         "-v",
         help="Enable verbose output",
+    ),
+    # DDP options
+    no_ddp: bool = typer.Option(
+        False,
+        "--no-ddp",
+        help="Disable DDP even with multiple GPUs",
+    ),
+    ddp_gpus: str | None = typer.Option(
+        None,
+        "--ddp-gpus",
+        help="Specific GPUs for DDP (e.g., '0,1,2,3')",
+    ),
+    vllm_gpu: int | None = typer.Option(
+        None,
+        "--vllm-gpu",
+        help="Specific GPU for vLLM server",
+    ),
+    # Execution mode options
+    local: bool = typer.Option(
+        False,
+        "--local",
+        help="Run training locally instead of using remote API server",
+    ),
+    modal: bool = typer.Option(
+        False,
+        "--modal",
+        help="Run training on Modal cloud infrastructure",
+    ),
+    modal_gpu: str = typer.Option(
+        "",
+        "--modal-gpu",
+        help="GPU type for Modal (e.g., H100, A100, L40S)",
+    ),
+    # Internal flag
+    skip_vllm_startup: bool = typer.Option(
+        False,
+        hidden=True,
+        help="Skip local vLLM server startup (for internal use)",
     ),
 ):
     """Run GRPO reinforcement learning training on tasks."""
@@ -87,7 +127,97 @@ def rl_command(
         # In verbose mode, show everything
         logging.basicConfig(level=logging.INFO)
     
-    console.print("\n[bold cyan]🚀 HUD RL Training[/bold cyan]\n")
+    hud_console.header("HUD RL Training")
+    
+    # Check execution mode
+    if local and modal:
+        console.print("[red]❌ Cannot use both --local and --modal flags[/red]")
+        raise typer.Exit(1)
+    
+    # Determine execution mode
+    use_remote = not local and not modal
+    use_modal = modal
+    
+    # Handle remote execution
+    if use_remote:
+        try:
+            from .remote_runner import run_remote_training
+            run_remote_training(
+                tasks_file=tasks_file,
+                model=model,
+                config_file=config_file,
+                output_dir=output_dir
+            )
+            return
+        except Exception as e:
+            console.print(f"[red]❌ Remote training failed: {str(e)}[/red]")
+            raise typer.Exit(1)
+    
+    # If using Modal, skip local setup and jump straight to config
+    if use_modal:
+        try:
+            from .modal_runner import launch_on_modal
+        except ImportError:
+            console.print("[red]❌ Modal not installed. Install with: pip install modal[/red]")
+            raise typer.Exit(1)
+        
+        # Load tasks first
+        console.print(f"[yellow]Loading tasks from: {tasks_file}[/yellow]")
+        tasks = load_tasks(tasks_file)
+        console.print(f"[green]✅ Loaded {len(tasks)} tasks[/green]")
+        
+        # Validate tasks
+        invalid_tasks = []
+        for i, task in enumerate(tasks):
+            if not hasattr(task, "prompt") or not task.prompt:
+                invalid_tasks.append((i, "missing 'prompt' field"))
+            if not hasattr(task, "mcp_config") or not task.mcp_config:
+                invalid_tasks.append((i, "missing 'mcp_config' field"))
+        
+        if invalid_tasks:
+            console.print(f"\n[red]❌ Found {len(invalid_tasks)} invalid tasks:[/red]")
+            for i, reason in invalid_tasks[:5]:  # Show first 5
+                console.print(f"  Task {i}: {reason}")
+            if len(invalid_tasks) > 5:
+                console.print(f"  ... and {len(invalid_tasks) - 5} more")
+            raise typer.Exit(1)
+        
+        # If config file provided, load it
+        if config_file:
+            config = load_config(config_file)
+            # Convert to JSON string using dataclasses
+            from dataclasses import asdict
+            config_dict = asdict(config)
+            config_json = json.dumps(config_dict, indent=2, default=str)
+        else:
+            # Generate config interactively
+            # For Modal, we'll use default GPU memory assumptions
+            gpu_memory_gb = 80.0  # Assume H100/A100 80GB
+            presets = get_training_presets(gpu_memory_gb)
+            config, estimated_memory = generate_config_interactive(
+                model_name=model,
+                tasks_count=len(tasks),
+                presets=presets,
+                output_dir=output_dir,
+            )
+            # Convert to JSON string using dataclasses
+            from dataclasses import asdict
+            config_dict = asdict(config)
+            config_json = json.dumps(config_dict, indent=2, default=str)
+        
+        # Launch on Modal and exit
+        launch_on_modal(
+            tasks_file=tasks_file,
+            config_json=config_json,
+            model=model,
+            output_dir=output_dir,
+            verbose=verbose,
+            modal_gpu=modal_gpu,
+            no_ddp=no_ddp,
+            ddp_gpus=ddp_gpus,
+            vllm_gpu=vllm_gpu,
+        )
+        return
     
     # Check Python version compatibility
     python_version = sys.version_info
@@ -114,6 +244,37 @@ def rl_command(
         raise typer.Exit(1)
     
     display_gpu_info(gpu_info)
+    
+    # Perform GPU health check
+    all_gpu_indices = [device["index"] for device in gpu_info["devices"]]
+    health_results = health_check_gpus(all_gpu_indices)
+    
+    if not health_results["all_healthy"]:
+        console.print("\n[yellow]⚠️  Some GPUs failed health checks![/yellow]")
+        console.print(f"[yellow]Unhealthy GPUs: {list(health_results['unhealthy_gpus'].keys())}[/yellow]")
+        
+        if not health_results["healthy_gpus"]:
+            console.print("[red]❌ No healthy GPUs available for training![/red]")
+            raise typer.Exit(1)
+        
+        console.print(f"\n[cyan]You have {len(health_results['healthy_gpus'])} healthy GPUs available.[/cyan]")
+        
+        continue_training = typer.confirm(
+            "\nContinue with healthy GPUs only?",
+            default=True
+        )
+        
+        if not continue_training:
+            healthy_str = ",".join(map(str, health_results["healthy_gpus"]))
+            console.print("\n[yellow]Exiting. Please resolve GPU issues and try again.[/yellow]")
+            console.print("\n[cyan]💡 Tip: To use only healthy GPUs, you can run:[/cyan]")
+            console.print(f"[white]hud rl {tasks_file} --ddp-gpus {healthy_str} --local[/white]\n")
+            raise typer.Exit(0)
+        else:
+            # Continue with healthy GPUs only
+            # Update gpu_info to only include healthy GPUs
+            gpu_info["devices"] = [d for d in gpu_info["devices"] if d["index"] in health_results["healthy_gpus"]]
+            console.print(f"\n[green]✅ Continuing with {len(gpu_info['devices'])} healthy GPUs[/green]")
     
     # Get primary GPU memory for configuration
     primary_gpu = gpu_info["devices"][0]
@@ -149,9 +310,9 @@ def rl_command(
     # Validate tasks
     invalid_tasks = []
     for i, task in enumerate(tasks):
-        if not hasattr(task, 'prompt') or not task.prompt:
+        if not hasattr(task, "prompt") or not task.prompt:
             invalid_tasks.append(f"Task {i}: missing 'prompt' field")
-        if not hasattr(task, 'mcp_config') or not task.mcp_config:
+        if not hasattr(task, "mcp_config") or not task.mcp_config:
             invalid_tasks.append(f"Task {i}: missing 'mcp_config' field")
     
     if invalid_tasks:
@@ -164,7 +325,7 @@ def rl_command(
     
     # Step 3: Model selection (if not provided)
     if model is None and not config_file:
-        model = design.select(
+        model = hud_console.select(
             "Select a model for RL training:",
             choices=[
                 {"name": "Qwen 2.5 VL 3B (Recommended - Vision-Language)", "value": "Qwen/Qwen2.5-VL-3B-Instruct"},
@@ -177,19 +338,43 @@ def rl_command(
             console.print("Enter the model name (HuggingFace ID):")
             model = input().strip()
     
+    # Validate model is a VL model (whether provided via CLI or selected)
+    if model:
+        try:
+            validate_vl_model(model)
+        except ValueError as e:
+            console.print(f"\n[red]❌ {e}[/red]")
+            raise typer.Exit(1)
+    
     # Step 4: Generate or load configuration
     if config_file:
         console.print(f"\n[cyan]Loading configuration from: {config_file}[/cyan]")
         config = load_config(config_file)
+        
+        # Validate model from config
+        if hasattr(config, 'model') and hasattr(config.model, 'base_model'):
+            try:
+                validate_vl_model(config.model.base_model)
+            except ValueError as e:
+                console.print(f"\n[red]❌ {e}[/red]")
+                raise typer.Exit(1)
+        
         # Estimate memory for display
         from .presets import estimate_memory_usage
         estimated_memory = estimate_memory_usage(
             config.training.mini_batch_size,
-            config.training.max_training_steps,
+            config.actor.max_steps_per_episode,
             config.model.max_pixels
         )
     else:
         console.print("\n[cyan]Generating training configuration...[/cyan]")
+        # Get number of GPUs for preset scaling
+        num_training_gpus = 1  # Default, will be adjusted later
+        if len(gpu_info["devices"]) > 2:
+            # If we have many GPUs, presets will show scaled values
+            num_training_gpus = len(gpu_info["devices"]) - 1  # Reserve 1 for vLLM
+            console.print(f"[yellow]Note: Episodes will be scaled for {num_training_gpus} training GPUs[/yellow]\n")
+        
         presets = get_training_presets(gpu_memory_gb)
         config, estimated_memory = generate_config_interactive(
             model_name=model,
@@ -207,102 +392,232 @@ def rl_command(
     # Display configuration summary
     display_config_summary(config, len(tasks), gpu_info, estimated_memory)
     
-    # Step 6: Ask for confirmation
-    console.print("\n[bold yellow]Options:[/bold yellow]")
-    console.print("  • Type [green]'start'[/green] to begin training")
-    console.print("  • Type [cyan]'edit'[/cyan] to open config in your editor")
-    console.print("  • Type [red]'cancel'[/red] to abort")
-    console.print("\n[bold]Your choice:[/bold] ", end="")
-    
-    while True:
-        choice = input().strip().lower()
+    # Step 6: Ask for confirmation (skip if config was provided)
+    if not config_file:
+        console.print("\n[bold yellow]Options:[/bold yellow]")
+        console.print("  • Type [green]'start'[/green] to begin training")
+        console.print("  • Type [cyan]'edit'[/cyan] to open config in your editor")
+        console.print("  • Type [red]'cancel'[/red] to abort")
+        console.print("\n[bold]Your choice:[/bold] ", end="")
         
-        if choice == "start":
-            # Reload config in case it was edited
-            config = load_config(temp_config_path)
-            break
-        elif choice == "edit":
-            # Default to nano if EDITOR is not set
-            editor = os.environ.get('EDITOR', 'nano')
+        while True:
+            choice = input().strip().lower()
             
-            # Show nano instructions if using nano
-            if editor == 'nano':
-                console.print("\n[cyan]Opening config in nano editor...[/cyan]")
-                console.print("[yellow]Tips:[/yellow]")
-                console.print("  • Edit the configuration values as needed")
-                console.print("  • Press [bold]Ctrl+O[/bold] then [bold]Enter[/bold] to save")
-                console.print("  • Press [bold]Ctrl+X[/bold] to exit")
-                console.print("  • Press [bold]Ctrl+C[/bold] to cancel without saving\n")
-                input("Press Enter to continue...")
-            
-            try:
-                subprocess.run([editor, str(temp_config_path)], check=True)
-                # Reload and display updated config
+            if choice == "start":
+                # Reload config in case it was edited
                 config = load_config(temp_config_path)
-                estimated_memory = estimate_memory_usage(
-                    config.training.mini_batch_size,
-                    config.training.max_training_steps,
-                    config.model.max_pixels
-                )
-                display_config_summary(config, len(tasks), gpu_info, estimated_memory)
-                console.print("\n[bold]Type 'start' to begin or 'cancel' to abort:[/bold] ", end="")
-            except subprocess.CalledProcessError:
-                console.print(f"\n[yellow]Editor closed without saving or was cancelled.[/yellow]")
-                console.print("[bold]Your choice:[/bold] ", end="")
-            except Exception as e:
-                console.print(f"\n[red]Failed to open editor: {e}[/red]")
-                console.print(f"[yellow]Please edit {temp_config_path} manually and type 'start' when ready.[/yellow]")
-                console.print("[bold]Your choice:[/bold] ", end="")
-        elif choice == "cancel":
-            console.print("[red]Training cancelled[/red]")
+                break
+            elif choice == "edit":
+                # Default to nano if EDITOR is not set
+                editor = os.environ.get("EDITOR", "nano")
+                
+                # Show nano instructions if using nano
+                if editor == "nano":
+                    console.print("\n[cyan]Opening config in nano editor...[/cyan]")
+                    console.print("[yellow]Tips:[/yellow]")
+                    console.print("  • Edit the configuration values as needed")
+                    console.print("  • Press [bold]Ctrl+O[/bold] then [bold]Enter[/bold] to save")
+                    console.print("  • Press [bold]Ctrl+X[/bold] to exit")
+                    console.print("  • Press [bold]Ctrl+C[/bold] to cancel without saving\n")
+                    input("Press Enter to continue...")
+                
+                try:
+                    subprocess.run([editor, str(temp_config_path)], check=True)
+                    # Reload and display updated config
+                    config = load_config(temp_config_path)
+                    estimated_memory = estimate_memory_usage(
+                        config.training.mini_batch_size,
+                        config.actor.max_steps_per_episode,
+                        config.model.max_pixels
+                    )
+                    display_config_summary(config, len(tasks), gpu_info, estimated_memory)
+                    console.print("\n[bold]Type 'start' to begin or 'cancel' to abort:[/bold] ", end="")
+                except subprocess.CalledProcessError:
+                    console.print("\n[yellow]Editor closed without saving or was cancelled.[/yellow]")
+                    console.print("[bold]Your choice:[/bold] ", end="")
+                except Exception as e:
+                    console.print(f"\n[red]Failed to open editor: {e}[/red]")
+                    console.print(f"[yellow]Please edit {temp_config_path} manually and type 'start' when ready.[/yellow]")
+                    console.print("[bold]Your choice:[/bold] ", end="")
+            elif choice == "cancel":
+                console.print("[red]Training cancelled[/red]")
+                
+                # Ask if they want to save the config
+                if typer.confirm("Save this configuration for later?", default=True):
+                    config_path = Path("rl_config.json")
+                    save_config(config, config_path)
+                
+                # Clean up temp file
+                try:
+                    temp_config_path.unlink()
+                except:
+                    pass
+                    
+                raise typer.Exit(0)
+            else:
+                console.print("[red]Invalid choice. Type 'start', 'edit', or 'cancel':[/red] ", end="")
+    else:
+        # Config was provided, proceed directly
+        console.print("\n[dim]Using provided configuration file...[/dim]")
+        config = load_config(temp_config_path)
+    
+    # Step 7: Determine if DDP should be used
+    num_gpus = len(gpu_info["devices"])
+    use_ddp = False
+    training_gpus = [0]  # Default single GPU
+    vllm_gpu_idx = 1 if num_gpus > 1 else 0
+    
+    if num_gpus > 2 and not no_ddp:
+        console.print(f"\n[cyan]🚀 Detected {num_gpus} GPUs - checking DDP configuration...[/cyan]")
+        
+        # Calculate optimal GPU allocation
+        gpu_allocation = calculate_optimal_gpu_allocation(gpu_info, config)
+        
+        if gpu_allocation["use_ddp"]:
+            use_ddp = True
+            training_gpus = gpu_allocation["training_gpus"]
+            vllm_gpu_idx = gpu_allocation["vllm_gpu"]
             
-            # Ask if they want to save the config
-            if typer.confirm("Save this configuration for later?", default=True):
-                config_path = Path("rl_config.json")
-                save_config(config, config_path)
+            console.print(f"[green]✅ Will use DDP with {len(training_gpus)} GPUs for training[/green]")
+            console.print(f"[green]✅ GPU {vllm_gpu_idx} reserved for vLLM server[/green]")
             
-            # Clean up temp file
+            # Show details
+            console.print("\n[cyan]Training Configuration:[/cyan]")
+            console.print(f"  • Groups to process: {gpu_allocation['num_groups']}")
+            console.print(f"  • Training GPUs: {training_gpus}")
+            console.print(f"  • Groups per GPU: {gpu_allocation.get('groups_per_gpu', 'N/A'):.1f}")
+            
+            # Warn about efficiency
+            if gpu_allocation.get("parallel_efficiency", 1.0) < 0.8:
+                console.print(f"\n[yellow]⚠️  GPU efficiency: {gpu_allocation['parallel_efficiency']*100:.0f}%[/yellow]")
+                console.print(f"[yellow]Consider adjusting batch_size to {len(training_gpus) * config.training.group_size} for optimal performance[/yellow]")
+        else:
+            console.print(f"[cyan]{gpu_allocation.get('reason', 'Using single GPU')}[/cyan]")
+    
+    # Allow manual override
+    if ddp_gpus is not None:
+        requested_gpus = [int(x) for x in ddp_gpus.split(",")]
+        console.print(f"[cyan]Manual GPU selection: {requested_gpus}[/cyan]")
+        # Validate requested GPUs are in the healthy set
+        available_indices = [d["index"] for d in gpu_info["devices"]]
+        invalid_gpus = [g for g in requested_gpus if g not in available_indices]
+        if invalid_gpus:
+            console.print(f"[red]❌ Invalid/unhealthy GPU(s) requested: {invalid_gpus}[/red]")
+            console.print(f"[yellow]Available healthy GPUs: {available_indices}[/yellow]")
+            raise typer.Exit(1)
+        training_gpus = requested_gpus
+        use_ddp = len(training_gpus) > 1
+    
+    if vllm_gpu is not None:
+        vllm_gpu_idx = vllm_gpu
+        console.print(f"[cyan]Manual vLLM GPU: {vllm_gpu_idx}[/cyan]")
+        # Validate vLLM GPU is in the healthy set
+        available_indices = [d["index"] for d in gpu_info["devices"]]
+        if vllm_gpu_idx not in available_indices:
+            console.print(f"[red]❌ vLLM GPU {vllm_gpu_idx} is not available/healthy![/red]")
+            console.print(f"[yellow]Available healthy GPUs: {available_indices}[/yellow]")
+            raise typer.Exit(1)
+    
+    # Ensure we have at least one training GPU
+    if not training_gpus:
+        console.print("[red]❌ No available GPUs for training![/red]")
+        raise typer.Exit(1)
+    
+    # Always adjust batch_size based on number of training GPUs
+    config = adjust_config_for_ddp(config, len(training_gpus))
+    
+    # Save updated config (for both DDP and single GPU)
+    save_config(config, temp_config_path)
+    
+    # Step 8: Start vLLM server (unless we're using a remote one)
+    if not skip_vllm_startup:
+        console.print(f"\n[cyan]Setting up vLLM server on GPU {vllm_gpu_idx}...[/cyan]")
+        
+        start_vllm_server(config.model.base_model, vllm_gpu_idx, restart=restart)
+        
+        # Wait for server to be ready
+        server_ready = asyncio.run(wait_for_vllm_server())
+        if not server_ready:
+            console.print("[red]❌ Failed to start vLLM server[/red]")
+            raise typer.Exit(1)
+    else:
+        console.print("\n[cyan]Using remote vLLM server (skipping local startup)[/cyan]")
+    
+    # Step 9: Run training (DDP or single GPU)
+    if use_ddp:
+        console.print(f"\n[bold green]🎯 Starting DDP training on {len(training_gpus)} GPUs...[/bold green]\n")
+        launch_ddp_training(config, training_gpus, vllm_gpu_idx, tasks_file, temp_config_path, verbose)
+        console.print("\n[green]✅ Training completed successfully![/green]")
+    else:
+        console.print("\n[bold green]🎯 Starting single-GPU training...[/bold green]\n")
+        try:
+            # Set verbose in config instead of passing as parameter
+            if verbose:
+                config.verbose = True
+            
+            # Run the async training function
+            asyncio.run(train(config, tasks))
+            console.print("\n[green]✅ Training completed successfully![/green]")
+        
+            # Clean up temp config file
             try:
                 temp_config_path.unlink()
             except:
                 pass
                 
-            raise typer.Exit(0)
-        else:
-            console.print("[red]Invalid choice. Type 'start', 'edit', or 'cancel':[/red] ", end="")
+        except KeyboardInterrupt:
+            console.print("\n[yellow]Training interrupted by user[/yellow]")
+            raise typer.Exit(1)
+        except Exception as e:
+            console.print(f"\n[red]❌ Training failed: {e}[/red]")
+            raise typer.Exit(1)
+
+
+def launch_ddp_training(
+    config: Config,
+    training_gpus: list[int],
+    vllm_gpu: int,
+    tasks_file: str,
+    config_path: Path,
+    verbose: bool
+):
+    """Launch DDP training with torchrun."""
+    import subprocess
+    import sys
     
-    # Step 7: Start vLLM server
-    vllm_gpu_index = select_gpu_for_vllm(gpu_info["devices"])
-    console.print(f"\n[cyan]Setting up vLLM server on GPU {vllm_gpu_index}...[/cyan]")
+    # Prepare environment
+    env = os.environ.copy()
+    env["CUDA_VISIBLE_DEVICES"] = ",".join(map(str, training_gpus))
     
-    start_vllm_server(config.model.base_model, vllm_gpu_index, restart=restart)
+    if not verbose:
+        env["HUD_LOG_LEVEL"] = "WARNING"
     
-    # Wait for server to be ready
-    server_ready = asyncio.run(wait_for_vllm_server())
-    if not server_ready:
-        console.print("[red]❌ Failed to start vLLM server[/red]")
-        raise typer.Exit(1)
+    # Build command
+    cmd = [
+        sys.executable, "-m", "torch.distributed.run",
+        f"--nproc_per_node={len(training_gpus)}",
+        "--master_port=29500",
+        "-m", "hud.rl.train",
+        "--config", str(config_path),
+        "--tasks", tasks_file
+    ]
     
-    # Step 8: Run training
-    console.print("\n[bold green]🎯 Starting RL training...[/bold green]\n")
+    # Add verbose flag if enabled
+    if verbose:
+        cmd.append("--verbose")
     
     try:
-        # Run the async training function
-        asyncio.run(train(config, tasks, verbose=verbose))
-        console.print("\n[green]✅ Training completed successfully![/green]")
-        
-        # Clean up temp config file
+        # Run DDP training
+        result = subprocess.run(cmd, env=env, check=True)
+    except subprocess.CalledProcessError as e:
+        console.print(f"\n[red]❌ DDP training failed with exit code {e.returncode}[/red]")
+        raise typer.Exit(1)
+    finally:
+        # Cleanup temp config
         try:
-            temp_config_path.unlink()
+            config_path.unlink()
         except:
             pass
-                
-    except KeyboardInterrupt:
-        console.print("\n[yellow]Training interrupted by user[/yellow]")
-        raise typer.Exit(1)
-    except Exception as e:
-        console.print(f"\n[red]❌ Training failed: {e}[/red]")
-        raise typer.Exit(1)
 
 
 # Export the command function

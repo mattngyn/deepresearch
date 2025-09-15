@@ -44,6 +44,12 @@ class Settings(BaseSettings):
         validation_alias="OPENAI_API_KEY",
     )
 
+    openrouter_api_key: str | None = Field(
+        default=None,
+        description="API key for OpenRouter models",
+        validation_alias="OPENROUTER_API_KEY",
+    )
+
     wandb_api_key: str | None = Field(
         default=None,
         description="API key for Weights & Biases",
@@ -72,6 +78,12 @@ class Settings(BaseSettings):
         default="stdout",
         description="Stream to use for logging output: 'stdout' or 'stderr'",
         validation_alias="HUD_LOG_STREAM",
+    )
+
+    hud_rl_url: str | None = Field(
+        default="http://localhost:8002",
+        description="Base URL for the HUD RL API server (e.g., http://localhost:8002)",
+        validation_alias="HUD_RL_URL",
     )
 
 

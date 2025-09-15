@@ -1,4 +1,4 @@
-"""HUD Design System - Consistent styling utilities for CLI output.
+"""HUD Console Design System - Consistent styling utilities for CLI output.
 
 This module provides a unified design system for HUD CLI commands,
 ensuring consistent colors, formatting, and visual hierarchy across
@@ -6,31 +6,38 @@ all commands.
 
 Color Palette:
 - Gold (#c0960c): Primary brand color for headers and important elements
-- Black: Standard text and underlined links
-- Red: Errors and failures
-- Green: Success messages
-- Dim/Gray: Secondary information
+- Neutral Grey: Standard text that works on both light and dark backgrounds
+- Muted Red: Errors and failures
+- Muted Green: Success messages
+- Bright Black: Secondary/dimmed information
+- Blue-Purple: Links and interactive elements
 """
 
 from __future__ import annotations
 
 import logging
-from typing import Any
+import time
+import traceback
+from typing import Any, Literal, Self
 
 import questionary
 import typer
 from rich.console import Console
 from rich.panel import Panel
+from rich.status import Status
 from rich.table import Table
 
-# HUD Brand Colors
-GOLD = "rgb(192,150,12)"  # #c0960c
-RED = "red"
-GREEN = "green"
-DIM = "dim"
+# HUD Brand Colors - Optimized for both light and dark modes
+GOLD = "rgb(192,150,12)"  # #c0960c - Primary brand color
+RED = "rgb(220,50,47)"  # Slightly muted red that works on both backgrounds
+GREEN = "rgb(133,153,0)"  # Slightly muted green that works on both backgrounds
+DIM = "bright_black"  # Grey that's visible on both light and dark backgrounds
+YELLOW = "yellow"
+TEXT = "bright_white"  # Off-white that's readable on dark, not too bright on light
+SECONDARY = "rgb(108,113,196)"  # Muted blue-purple for secondary text
 
 
-class HUDDesign:
+class HUDConsole:
     """Design system for HUD CLI output."""
 
     def __init__(self, logger: logging.Logger | None = None) -> None:
@@ -72,7 +79,7 @@ class HUDDesign:
             stderr: If True, output to stderr (default), otherwise stdout
         """
         console = self._stderr_console if stderr else self._stdout_console
-        console.print(f"[{GREEN} not bold]✅ {message}[/{GREEN} not bold]")
+        console.print(f"[{GREEN}]✅ {message}[/{GREEN}]")
 
     def error(self, message: str, stderr: bool = True) -> None:
         """Print an error message.
@@ -82,7 +89,11 @@ class HUDDesign:
             stderr: If True, output to stderr (default), otherwise stdout
         """
         console = self._stderr_console if stderr else self._stdout_console
-        console.print(f"[{RED} not bold]❌ {message}[/{RED} not bold]")
+        tb = traceback.format_exc()
+        if "NoneType: None" not in tb:
+            console.print(f"[{RED} not bold]❌ {message}\n{tb}[/{RED} not bold]")
+        else:
+            console.print(f"[{RED} not bold]❌ {message}[/{RED} not bold]")
 
     def warning(self, message: str, stderr: bool = True) -> None:
         """Print a warning message.
@@ -92,7 +103,7 @@ class HUDDesign:
             stderr: If True, output to stderr (default), otherwise stdout
         """
         console = self._stderr_console if stderr else self._stdout_console
-        console.print(f"[yellow]⚠️  {message}[/yellow]")
+        console.print(f"⚠️ [{YELLOW} not bold]{message}[/{YELLOW} not bold]")
 
     def info(self, message: str, stderr: bool = True) -> None:
         """Print an info message.
@@ -102,7 +113,7 @@ class HUDDesign:
             stderr: If True, output to stderr (default), otherwise stdout
         """
         console = self._stderr_console if stderr else self._stdout_console
-        console.print(f"[default not bold]{message}[/default not bold]")
+        console.print(f"[{TEXT} not bold]{message}[/{TEXT} not bold]")
 
     def print(self, message: str, stderr: bool = True) -> None:
         """Print a message.
@@ -123,7 +134,7 @@ class HUDDesign:
             stderr: If True, output to stderr (default), otherwise stdout
         """
         console = self._stderr_console if stderr else self._stdout_console
-        console.print(f"[{DIM}]{label}[/{DIM}] [default]{value}[/default]")
+        console.print(f"[{DIM} not bold][default]{label}[/default][/{DIM} not bold] [default]{value}[/default]")
 
     def link(self, url: str, stderr: bool = True) -> None:
         """Print an underlined link.
@@ -133,18 +144,18 @@ class HUDDesign:
             stderr: If True, output to stderr (default), otherwise stdout
         """
         console = self._stderr_console if stderr else self._stdout_console
-        console.print(f"[default not bold underline]{url}[/default not bold underline]")
+        console.print(f"[{SECONDARY} underline]{url}[/{SECONDARY} underline]")
 
     def json_config(self, json_str: str, stderr: bool = True) -> None:
-        """Print JSON configuration with light theme.
+        """Print JSON configuration with neutral theme.
 
         Args:
             json_str: JSON string to display
             stderr: If True, output to stderr (default), otherwise stdout
         """
-        # Just print the JSON as plain text to avoid any syntax coloring
+        # Print JSON with neutral grey text
         console = self._stderr_console if stderr else self._stdout_console
-        console.print(f"[default not bold]{json_str}[/default not bold]")
+        console.print(f"[{TEXT}]{json_str}[/{TEXT}]")
 
     def key_value_table(
         self, data: dict[str, str], show_header: bool = False, stderr: bool = True
@@ -161,7 +172,7 @@ class HUDDesign:
         table.add_column("Value")
 
         for key, value in data.items():
-            table.add_row(key, value)
+            table.add_row(key, str(value))
 
         console = self._stderr_console if stderr else self._stdout_console
         console.print(table)
@@ -174,7 +185,7 @@ class HUDDesign:
             stderr: If True, output to stderr (default), otherwise stdout
         """
         console = self._stderr_console if stderr else self._stdout_console
-        console.print(f"[{DIM} not bold]{message}[/{DIM} not bold]")
+        console.print(f"[{DIM}]{message}[/{DIM}]")
 
     def phase(self, phase_num: int, title: str, stderr: bool = True) -> None:
         """Print a phase header (for debug command).
@@ -197,7 +208,7 @@ class HUDDesign:
             stderr: If True, output to stderr (default), otherwise stdout
         """
         console = self._stderr_console if stderr else self._stdout_console
-        console.print(f"[bold]$ {' '.join(cmd)}[/bold]")
+        console.print(f"[bold {TEXT}]$ {' '.join(cmd)}[/bold {TEXT}]")
 
     def hint(self, hint: str, stderr: bool = True) -> None:
         """Print a hint message.
@@ -207,7 +218,7 @@ class HUDDesign:
             stderr: If True, output to stderr (default), otherwise stdout
         """
         console = self._stderr_console if stderr else self._stdout_console
-        console.print(f"\n[yellow]💡 Hint: {hint}[/yellow]")
+        console.print(f"[rgb(181,137,0)]💡 Hint: {hint}[/rgb(181,137,0)]")
 
     def status_item(
         self,
@@ -227,8 +238,8 @@ class HUDDesign:
             stderr: If True, output to stderr (default), otherwise stdout
         """
         indicators = {
-            "success": f"[{GREEN} not bold]✓[/{GREEN} not bold]",
-            "error": f"[{RED} not bold]✗[/{RED} not bold]",
+            "success": f"[{GREEN}]✓[/{GREEN}]",
+            "error": f"[{RED}]✗[/{RED}]",
             "warning": "[yellow]⚠[/yellow]",
             "info": f"[{DIM}]•[/{DIM}]",
         }
@@ -237,9 +248,9 @@ class HUDDesign:
         console = self._stderr_console if stderr else self._stdout_console
 
         if primary:
-            console.print(f"{indicator} {label}: [bold cyan]{value}[/bold cyan]")
+            console.print(f"{indicator} {label}: [bold {SECONDARY}]{value}[/bold {SECONDARY}]")
         else:
-            console.print(f"{indicator} {label}: {value}")
+            console.print(f"{indicator} {label}: [{TEXT}]{value}[/{TEXT}]")
 
     def command_example(
         self, command: str, description: str | None = None, stderr: bool = True
@@ -253,9 +264,12 @@ class HUDDesign:
         """
         console = self._stderr_console if stderr else self._stdout_console
         if description:
-            console.print(f"  [cyan]{command}[/cyan]  # {description}")
+            console.print(
+                f"  [{SECONDARY}]{command}[/{SECONDARY}]  "
+                f"[bright_black]# {description}[/bright_black]"
+            )
         else:
-            console.print(f"  [cyan]{command}[/cyan]")
+            console.print(f"  [{SECONDARY}]{command}[/{SECONDARY}]")
 
     # Exception rendering utilities
     def render_support_hint(self, stderr: bool = True) -> None:
@@ -309,7 +323,7 @@ class HUDDesign:
 
                 render_hints(hints, design=self)
             except Exception as render_error:
-                self.debug(f"Failed to render hints: {render_error}")
+                self.debug_log(f"Failed to render hints: {render_error}")
 
         # Standard support hint
         self.render_support_hint(stderr=stderr)
@@ -330,9 +344,31 @@ class HUDDesign:
         else:
             self._logger.setLevel(logging.WARNING)
 
-    # Logging-aware methods that check logging levels before printing
+    @property
+    def prefix(self) -> str:
+        """Get the metadata of the current file."""
+        metadata = self._logger.findCaller(stacklevel=3)
+        return f"{metadata[0]}:{metadata[1]} in {metadata[2]} | "
 
+    # Logging-aware methods that check logging levels before printing
+    def log(self, message: str, level: Literal["info", "debug", "warning", "error"] = "info", stderr: bool = True) -> None:
+        """Print a message based on the logging level.
+        """
+        prefix = self.prefix
+        if level == "info":
+            self.info_log(f"{prefix}{message}", stderr=stderr)
+        elif level == "debug":
+            self.debug_log(f"{prefix}{message}", stderr=stderr)
+        elif level == "warning":
+            self.warning_log(f"{prefix}{message}", stderr=stderr)
+        elif level == "error":
+            self.error_log(f"{prefix}{message}", stderr=stderr)
+        
     def debug(self, message: str, stderr: bool = True) -> None:
+        """Print a debug message."""
+        self.debug_log(message, stderr=stderr)
+
+    def debug_log(self, message: str, stderr: bool = True) -> None:
         """Print a debug message only if DEBUG logging is enabled.
 
         Args:
@@ -340,7 +376,7 @@ class HUDDesign:
             stderr: If True, output to stderr (default), otherwise stdout
         """
         if self._logger.isEnabledFor(logging.DEBUG):
-            self.dim_info("[DEBUG]", message, stderr=stderr)
+            self.dim_info(message, "", stderr=stderr)
 
     def info_log(self, message: str, stderr: bool = True) -> None:
         """Print an info message only if INFO logging is enabled.
@@ -361,6 +397,26 @@ class HUDDesign:
         """
         if self._logger.isEnabledFor(logging.INFO):
             self.progress_message(message, stderr=stderr)
+    
+    def progress(self, initial: str = "", stderr: bool = True) -> _ProgressContext:
+        """Create a progress context manager for inline updates.
+        
+        Args:
+            initial: Initial message to display
+            stderr: If True, output to stderr (default), otherwise stdout
+            
+        Returns:
+            A context manager that provides update() method
+            
+        Example:
+            with console.progress("Processing...") as progress:
+                for i in range(10):
+                    progress.update(f"Processing item {i+1}/10")
+        """
+        return _ProgressContext(
+            console=self._stderr_console if stderr else self._stdout_console,
+            initial=initial
+        )
 
     def success_log(self, message: str, stderr: bool = True) -> None:
         """Print a success message only if INFO logging is enabled.
@@ -453,7 +509,7 @@ class HUDDesign:
             except (TypeError, ValueError):
                 args_str = str(arguments)[:60]
 
-        return f"[{GOLD}]→[/{GOLD}] [bold]{name}[/bold][{DIM}]({args_str})[/{DIM}]"
+        return f"[{GOLD}]→[/{GOLD}] [bold {TEXT}]{name}[/bold {TEXT}][{DIM}]({args_str})[/{DIM}]"
 
     def format_tool_result(self, content: str, is_error: bool = False) -> str:
         """Format a tool result in compact HUD style.
@@ -473,8 +529,51 @@ class HUDDesign:
         if is_error:
             return f"  [{RED}]✗[/{RED}] [{DIM}]{content}[/{DIM}]"
         else:
-            return f"  [{GREEN}]✓[/{GREEN}] {content}"
+            return f"  [{GREEN}]✓[/{GREEN}] [{TEXT}]{content}[/{TEXT}]"
+
+    def confirm(self, message: str, default: bool = True) -> bool:
+        """Print a confirmation message.
+        
+        Args:
+            message: The confirmation message
+            default: If True, the default choice is True
+        """
+        return questionary.confirm(message, default=default).ask()
 
 
 # Global design instance for convenience
-design = HUDDesign()
+class _ProgressContext:
+    """Context manager for inline progress updates."""
+    
+    def __init__(self, console: Console, initial: str = "") -> None:
+        self.console = console
+        self.initial = initial
+        self.status: Status | None = None
+        self.start_time: float | None = None
+        
+    def __enter__(self) -> Self:
+        self.status = self.console.status(self.initial)
+        self.status.__enter__()
+        self.start_time = time.time()
+        return self
+        
+    def __exit__(self, exc_type: object, exc_val: object, exc_tb: object) -> None:
+        if self.status:
+            self.status.__exit__(exc_type, exc_val, exc_tb)
+    
+    def update(self, message: str, with_elapsed: bool = True) -> None:
+        """Update the progress message.
+        
+        Args:
+            message: New message to display
+            with_elapsed: If True, append elapsed time to message
+        """
+        if self.status:
+            if with_elapsed and self.start_time:
+                elapsed = time.time() - self.start_time
+                self.status.update(f"{message} [{elapsed:.1f}s]")
+            else:
+                self.status.update(message)
+
+
+hud_console = HUDConsole()

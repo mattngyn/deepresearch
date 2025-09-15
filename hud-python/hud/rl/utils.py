@@ -1,131 +1,130 @@
 """Utility functions for RL training."""
+from __future__ import annotations
 
-import os
-import io
 import base64
-import random
+import io
 import json
-from typing import Any, List, Union
+import logging
+import os
+import random
 from pathlib import Path
-from PIL import Image
+from typing import Any
+
+import numpy as np
 import torch
+from PIL import Image
 from transformers.utils.chat_template_utils import render_jinja_template
-import bisect
+
 from hud.datasets import Task
-from .types import Episode, TrainingSample
+from hud.types import Trace
+from hud.utils.hud_console import HUDConsole
+
+from .config import Config
+from .types import TrainingSample
+
+logger = logging.getLogger(__name__)
+hud_console = HUDConsole(logger)
 
 
-def set_seed(seed: int):
+def set_seed(seed: int) -> None:
     """Set random seeds for reproducibility."""
     random.seed(seed)
     torch.manual_seed(seed)
     if torch.cuda.is_available():
         torch.cuda.manual_seed_all(seed)
 
-def load_chat_template(path: str):
+def load_chat_template(path: str) -> str:
     """Load chat template from file."""
-    with open(path, "r") as f:
+    with open(path) as f:
         return f.read()
 
-def ensure_dir(path: str):
+def ensure_dir(path: str) -> None:
     """Create directory if it doesn't exist."""
     os.makedirs(path, exist_ok=True)
 
+def get_memory_usage() -> float:
+    if torch.cuda.is_available():
+        torch.cuda.synchronize()
+        return torch.cuda.memory_allocated() / 1024**3
+    return 0.0
 
-def load_tasks(tasks_input: Union[str, List[dict]], system_prompt: str = None) -> List[Task]:
-    """Load tasks from various sources.
+
+def get_gpu_utilization() -> float:
+    """Get current GPU utilization percentage (0-100)."""
+    if not torch.cuda.is_available():
+        return 0.0
+    
+    try:
+        import nvidia_ml_py as nvml
+        nvml.nvmlInit()
+        device_id = torch.cuda.current_device()
+        handle = nvml.nvmlDeviceGetHandleByIndex(device_id)
+        util = nvml.nvmlDeviceGetUtilizationRates(handle)
+        return float(util.gpu)
+    except Exception:
+        # Fallback: estimate based on memory usage
+        # This is less accurate but works without nvidia-ml-py
+        return min(100.0, (torch.cuda.memory_allocated() / torch.cuda.max_memory_allocated()) * 100)
+
+
+def aggregate_metrics_across_ranks(metrics: Any, metrics_to_aggregate: list[str] | None = None) -> None:
+    """Aggregate metrics across all ranks for proper distributed statistics.
     
     Args:
-        tasks_input: Either:
-            - Path to a JSONL file
-            - HuggingFace dataset name (format: "username/dataset" or "username/dataset:split")
-            - List of task dictionaries
-        system_prompt: Default system prompt to use if not specified in task
+        metrics: TrainingMetrics object to update in-place
+        metrics_to_aggregate: List of metric names to aggregate. If None, aggregates all numeric metrics.
     
-    Returns:
-        List of validated HUD Task objects
+    This function:
+    1. Gathers metric values from all ranks
+    2. Computes proper mean/std across all GPUs
+    3. Updates the metrics object in-place (only on rank 0)
     """
-    tasks = []
+    from hud.rl.distributed import get_local_rank, get_world_size, is_main_process
     
-    if isinstance(tasks_input, list):
-        # Direct list of task dicts
-        print(f"Loading {len(tasks_input)} tasks from provided list")
-        for item in tasks_input:
-            task = Task(
-                id=item.get("id"),
-                prompt=item["prompt"],
-                mcp_config=item["mcp_config"],
-                setup_tool=item.get("setup_tool"),
-                evaluate_tool=item.get("evaluate_tool"),
-                system_prompt=item.get("system_prompt", system_prompt),
-                metadata=item.get("metadata", {})
-            )
-            tasks.append(task)
+    if get_world_size() <= 1:
+        return  # Nothing to aggregate in single GPU mode
     
-    elif isinstance(tasks_input, str):
-        # Check if it's a file path
-        if Path(tasks_input).exists():
-            print(f"Loading tasks from file: {tasks_input}")
-            with open(tasks_input) as f:
-                for line in f:
-                    item = json.loads(line.strip())
-                    task = Task(
-                        id=item.get("id"),
-                        prompt=item["prompt"],
-                        mcp_config=item["mcp_config"],
-                        setup_tool=item.get("setup_tool"),
-                        evaluate_tool=item.get("evaluate_tool"),
-                        system_prompt=item.get("system_prompt", system_prompt),
-                        metadata=item.get("metadata", {})
-                    )
-                    tasks.append(task)
-        
-        # Check if it's a HuggingFace dataset
-        elif "/" in tasks_input:
-            print(f"Loading tasks from HuggingFace dataset: {tasks_input}")
-            try:
-                from datasets import load_dataset
-                
-                # Parse dataset name and optional split
-                if ":" in tasks_input:
-                    dataset_name, split = tasks_input.split(":", 1)
-                else:
-                    dataset_name = tasks_input
-                    split = "train"  # Default split
-                
-                dataset = load_dataset(dataset_name, split=split)
-                
-                # Convert dataset rows to Task objects
-                for item in dataset:
-                    # Handle different possible field names in HF datasets
-                    task_id = item.get("id") or item.get("task_id") or None
-                    prompt = item.get("prompt") or item.get("instruction") or item.get("question")
-                    mcp_config = item.get("mcp_config") or {"local": {"command": "echo", "args": ["No MCP config provided"]}}
-                    
-                    task = Task(
-                        id=task_id,
-                        prompt=prompt,
-                        mcp_config=mcp_config,
-                        setup_tool=item.get("setup_tool"),
-                        evaluate_tool=item.get("evaluate_tool"),
-                        system_prompt=item.get("system_prompt", system_prompt),
-                        metadata=item.get("metadata", {})
-                    )
-                    tasks.append(task)
-                    
-            except ImportError:
-                raise ImportError("Please install 'datasets' package to load from HuggingFace: pip install datasets")
-            except Exception as e:
-                raise ValueError(f"Failed to load HuggingFace dataset '{tasks_input}': {e}")
-        
-        else:
-            raise ValueError(f"Invalid tasks input: '{tasks_input}' is neither a file path nor a HuggingFace dataset")
+    # Default metrics that typically vary across GPUs
+    if metrics_to_aggregate is None:
+        metrics_to_aggregate = ["training_time", "samples_per_second", "gpu_util", "gpu_memory", "grad_norm"]
     
+    # Collect current values from this rank
+    local_values = {}
+    for metric_name in metrics_to_aggregate:
+        if hasattr(metrics, metric_name):
+            metric_obj = getattr(metrics, metric_name)
+            # Get the last value if available, otherwise 0
+            local_values[metric_name] = metric_obj.values[-1] if metric_obj.values else 0.0
+    
+    # Convert to tensor for distributed gathering
+    values_tensor = torch.tensor(
+        list(local_values.values()),
+        device=f"cuda:{get_local_rank()}",
+        dtype=torch.float32
+    )
+    
+    # Gather from all ranks
+    if is_main_process():
+        gathered_tensors = [torch.zeros_like(values_tensor) for _ in range(get_world_size())]
     else:
-        raise TypeError(f"tasks_input must be str or list, got {type(tasks_input)}")
+        gathered_tensors = None
     
-    print(f"Loaded {len(tasks)} tasks")
-    return tasks
+    torch.distributed.gather(values_tensor, gathered_tensors, dst=0)
+    
+    # Update metrics on main process only
+    if is_main_process() and gathered_tensors:
+        # Reshape: [num_gpus, num_metrics]
+        all_values = torch.stack(gathered_tensors).cpu().numpy()
+        
+        # Update each metric with aggregated values
+        for i, metric_name in enumerate(local_values.keys()):
+            metric_obj = getattr(metrics, metric_name)
+            gpu_values = all_values[:, i].tolist()
+            
+            # Replace single value with all GPU values
+            metric_obj.values = gpu_values
+            metric_obj.mean = float(np.mean(gpu_values))
+            metric_obj.std = float(np.std(gpu_values))
 
 
 def b64_to_pil(b64_str: str) -> Image.Image:
@@ -134,9 +133,8 @@ def b64_to_pil(b64_str: str) -> Image.Image:
 
 
 def build_assistant_masks(
-    input_ids: list[list[int]], 
-    tokenizer: Any, 
-    debug: bool = False
+    input_ids: list[list[int]],
+    tokenizer: Any,
 ) -> list[list[int]]:
     """
     Build assistant masks from token IDs by finding assistant turns.
@@ -144,7 +142,7 @@ def build_assistant_masks(
     Args:
         input_ids: List of token sequences
         tokenizer: Tokenizer to decode tokens and get special token IDs
-        debug: Whether to print debug information
+        verbose: Whether to print verbose information
         
     Returns:
         List of binary masks indicating assistant tokens
@@ -155,7 +153,7 @@ def build_assistant_masks(
 
     assistant_masks: list[list[int]] = []
 
-    for seq_idx, seq in enumerate(input_ids):
+    for seq in input_ids:
         mask = [0] * len(seq)
         i_tok = 0
         assistant_turn_count = 0
@@ -168,16 +166,15 @@ def build_assistant_masks(
                 and seq[i_tok + 1] == id_assistant
             ):
                 assistant_turn_count += 1
-                turn_start = i_tok
                 
                 # Skip '<|im_start|>', 'assistant' and possible newline token
                 i_tok += 2
                 # Check for newline after 'assistant'
-                if i_tok < len(seq) and tokenizer.decode([seq[i_tok]]) == '\n':
+                if i_tok < len(seq) and tokenizer.decode([seq[i_tok]]) == "\n":
                     i_tok += 1
                 
                 # Skip leading spaces after assistant\n
-                while i_tok < len(seq) and tokenizer.decode([seq[i_tok]]).strip() == '':
+                while i_tok < len(seq) and tokenizer.decode([seq[i_tok]]).strip() == "":
                     i_tok += 1
                 
                 assistant_content_start = i_tok
@@ -191,7 +188,7 @@ def build_assistant_masks(
                 
                 # Remove trailing spaces from the mask
                 while content_end > assistant_content_start:
-                    if mask[content_end - 1] == 1 and tokenizer.decode([seq[content_end - 1]]).strip() == '':
+                    if mask[content_end - 1] == 1 and tokenizer.decode([seq[content_end - 1]]).strip() == "":
                         mask[content_end - 1] = 0
                         content_end -= 1
                     else:
@@ -207,7 +204,9 @@ def build_assistant_masks(
     return assistant_masks
 
 
-def prepare_conversation_history(conversation_history: list[dict[str, Any]]) -> (list[dict[str, Any]], list[Image.Image]):
+def prepare_conversation_history(
+    conversation_history: list[dict[str, Any]]
+) -> tuple[list[dict[str, Any]], list[Image.Image]]:
     """Sanitize conversation history to avoid vLLM errors."""
     sanitized_messages = []
     images = []
@@ -236,63 +235,49 @@ def prepare_conversation_history(conversation_history: list[dict[str, Any]]) -> 
         sanitized_messages.append(m)
     return sanitized_messages, images
 
-def prepare_training_samples(
-    episode: Episode,
-    processor,
-    learner,
-    config
-) -> list[TrainingSample]:
+def prepare_inputs(
+    trace: Trace,
+    processor: Any,
+    learner: Any,
+    config: Config
+) -> list[dict[str, torch.Tensor]]:
     """
-    Prepare training samples from an episode.
+    Prepare inputs from a trace.
     
     Args:
-        episode: Episode to process
+        trace: Trace to process
         processor: Model processor
         learner: Learner instance (for computing logprobs)
     
     Returns:
-        List of training samples
+        Inputs for the model
     """
-    if len(episode.conversation_history) == 0:
+    # Skip error traces or traces with no messages
+    if trace.isError or len(trace.messages) == 0:
         return []
-    
-    samples = []
 
     # Get images for current turn
-    conversation, images = prepare_conversation_history(episode.conversation_history)
+    conversation, images = prepare_conversation_history(trace.messages)
 
     # Get absolute path to chat template
     chat_template_path = Path(__file__).parent / "chat_template.jinja"
     
-    # Handle both AutoProcessor (for VL models) and AutoTokenizer (for text models)
-    tokenizer = processor.tokenizer if hasattr(processor, 'tokenizer') else processor
-    
-    text_list, generation_indices = render_jinja_template(
+    text_list, _ = render_jinja_template(
         conversations=[conversation],
         chat_template=load_chat_template(str(chat_template_path)),
-        tools=episode.tool_spec if episode.tool_spec else None, # mcp_tools
+        tools=trace.info["tool_spec"] if trace.info["tool_spec"] else None, # mcp_tools
         return_assistant_tokens_mask=True,
-        **tokenizer.special_tokens_map,
+        **processor.tokenizer.special_tokens_map,
     )
-    # Handle different processor types
-    if hasattr(processor, 'tokenizer'):
-        # Vision-language processor
-        inputs = processor(
-            images=images if len(images) > 0 else None,
-            text=text_list,
-            return_offsets_mapping=False,  # we no longer need char offsets
-        )
-    else:
-        # Text-only tokenizer
-        inputs = processor(
-            text_list,
-            return_offsets_mapping=False,  # we no longer need char offsets
-            return_tensors=None,  # We'll convert to tensors later
-        )
+    inputs = processor(
+        images=images if len(images) > 0 else None,
+        text=text_list,
+        return_offsets_mapping=False,  # we no longer need char offsets
+    )
 
     # Build assistant masks from token IDs
     input_ids = inputs["input_ids"]  # list of lists (length 1 batch)
-    assistant_masks = build_assistant_masks(input_ids, tokenizer, config.debug)
+    assistant_masks = build_assistant_masks(input_ids, processor.tokenizer)
     inputs["assistant_masks"] = assistant_masks
     inputs.convert_to_tensors(tensor_type="pt")
 
@@ -304,16 +289,33 @@ def prepare_training_samples(
     logits_to_keep = (mask_tensor[0, 1:] == 1).nonzero(as_tuple=True)[0]
     inputs["logits_to_keep"] = logits_to_keep
     inputs = {k: v.to(learner.device) for k, v in inputs.items()}
-        
-    samples.append(TrainingSample(
-        inputs=inputs,
-        advantage=0.0,  # Will be set during training
-        old_logprobs=None, # Will be set during training
-        ref_logprobs=None, # Will be set during training
-    ))
-    
-    return samples
 
+    return [inputs]
+
+
+def preprocess_advantages(group: list[Trace], group_size: int) -> list[TrainingSample]:
+    """Preprocess a group of traces."""
+    groups = [group[i:i+group_size] for i in range(0, len(group), group_size)]
+    all_samples = []
+    for group in groups:
+        rewards = np.array([trace.reward for trace in group])
+        mean_reward = np.mean(rewards)
+        std_reward = np.std(rewards)
+        
+        # Normalize advantages
+        samples = [TrainingSample(**trace.model_dump()) for trace in group]
+        for sample, reward in zip(samples, rewards, strict=True):
+            if sample.isError:
+                sample.advantage = 0.0
+                continue
+            if std_reward < 1e-6:
+                sample.advantage = 0.0
+                continue
+            advantage_value = ((reward - mean_reward) / std_reward)
+            sample.advantage = float(advantage_value)
+        all_samples.extend(samples)
+
+    return all_samples
 
 # def concat_training_samples(
 #     samples: list[TrainingSample],
@@ -338,28 +340,3 @@ def prepare_training_samples(
 #     sample.ref_logprobs = torch.stack([s.ref_logprobs for s in samples])
 #     sample.weight = torch.stack([s.weight for s in samples])
 #     return sample
-
-
-def compute_format_penalty(episode: Episode, penalty: float = -1.0) -> float:
-    """
-    Compute format penalty for episodes with errors.
-    
-    Args:
-        episode: Episode to check
-        penalty: Penalty value for errors
-    
-    Returns:
-        Total format penalty
-    """
-    total_penalty = 0.0
-    
-    # Check for errors in episode info
-    if "error" in episode.info:
-        total_penalty += penalty
-    
-    # Check conversation history for tool errors
-    for msg in episode.conversation_history:
-        if msg.get("role") == "tool" and "error" in msg.get("content", "").lower():
-            total_penalty += penalty * 0.5
-    
-    return total_penalty

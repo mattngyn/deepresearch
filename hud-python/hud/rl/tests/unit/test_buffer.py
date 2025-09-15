@@ -1,7 +1,9 @@
 """Tests for replay buffer."""
+from __future__ import annotations
 
 import pytest
-from hud.rl.buffer import ReplayBuffer, GroupedReplayBuffer
+
+from hud.rl.buffer import GroupedReplayBuffer, ReplayBuffer
 from hud.rl.types import Episode, Turn
 
 
@@ -62,7 +64,7 @@ def test_replay_buffer_success_sampling():
     success = buffer.sample_success()
     assert success is not None
     assert success.success
-    assert success.terminal_reward > 0
+    assert success.reward > 0
 
 
 def test_replay_buffer_stats():

@@ -28,6 +28,7 @@ import mcp.types as types
 from hud.settings import settings
 from hud.tools.computer.settings import computer_settings
 from hud.types import AgentResponse, MCPToolCall, MCPToolResult
+from hud.utils.hud_console import HUDConsole
 
 from .base import MCPAgent
 
@@ -78,6 +79,7 @@ class ClaudeAgent(MCPAgent):
         self.model = model
         self.max_tokens = max_tokens
         self.use_computer_beta = use_computer_beta
+        self.hud_console = HUDConsole(logger=logger)
 
         self.model_name = self.model
 
@@ -149,7 +151,7 @@ class ClaudeAgent(MCPAgent):
                 )
             else:
                 # For other types, try to cast but log a warning
-                logger.warning("Unknown content block type: %s", type(block))
+                self.hud_console.log("Unknown content block type: %s", type(block), level="warning")
                 anthropic_blocks.append(cast("BetaContentBlockParam", block))
 
         return [
@@ -196,8 +198,12 @@ class ClaudeAgent(MCPAgent):
                 response = await self.anthropic_client.beta.messages.create(**create_kwargs)
                 break
             except BadRequestError as e:
-                if e.message.startswith("prompt is too long"):
-                    logger.warning("Prompt too long, truncating message history")
+                if (
+                    "prompt is too long" in str(e)
+                    or "request_too_large" in str(e)
+                    or e.status_code == 413
+                ):
+                    self.hud_console.warning("Prompt too long, truncating message history")
                     # Keep first message and last 20 messages
                     if len(current_messages) > 21:
                         current_messages = [current_messages[0], *current_messages[-20:]]
@@ -262,7 +268,7 @@ class ClaudeAgent(MCPAgent):
             # Extract Claude-specific metadata from extra fields
             tool_use_id = tool_call.id
             if not tool_use_id:
-                logger.warning("No tool_use_id found for %s", tool_call.name)
+                self.hud_console.warning("No tool_use_id found for %s", tool_call.name)
                 continue
 
             # Convert MCP tool results to Claude format
@@ -331,7 +337,7 @@ class ClaudeAgent(MCPAgent):
             # Map Claude's "computer" back to the actual MCP tool name
             self._claude_to_mcp_tool_map["computer"] = selected_computer_tool.name
             claude_tools.append(claude_tool)
-            logger.debug("Using %s as computer tool for Claude", selected_computer_tool.name)
+            self.hud_console.debug("Using %s as computer tool for Claude", selected_computer_tool.name)
 
         # Add other non-computer tools
         for tool in self._available_tools:
@@ -364,16 +370,21 @@ class ClaudeAgent(MCPAgent):
         messages_cached = copy.deepcopy(messages)
 
         # Mark last user message with cache control
-        if messages_cached and messages_cached[-1].get("role") == "user":
+        if (
+            messages_cached
+            and isinstance(messages_cached[-1], dict)
+            and messages_cached[-1].get("role") == "user"
+        ):
             last_content = messages_cached[-1]["content"]
             # Content is formatted to be list of ContentBlock in format_blocks and format_message
             if isinstance(last_content, list):
                 for block in last_content:
-                    # Only add cache control to block types that support it
-                    block_type = block.get("type")
-                    if block_type in ["text", "image", "tool_use", "tool_result"]:
-                        cache_control: BetaCacheControlEphemeralParam = {"type": "ephemeral"}
-                        block["cache_control"] = cache_control  # type: ignore[reportGeneralTypeIssues]
+                    # Only add cache control to dict-like block types that support it
+                    if isinstance(block, dict):
+                        block_type = block.get("type")
+                        if block_type in ["text", "image", "tool_use", "tool_result"]:
+                            cache_control: BetaCacheControlEphemeralParam = {"type": "ephemeral"}
+                            block["cache_control"] = cache_control  # type: ignore[reportGeneralTypeIssues]
 
         return messages_cached
 

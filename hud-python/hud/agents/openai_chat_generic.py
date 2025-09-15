@@ -17,12 +17,13 @@ from __future__ import annotations
 
 import json
 import logging
-from typing import TYPE_CHECKING, Any, cast
+from typing import TYPE_CHECKING, Any, ClassVar, cast
 
 import mcp.types as types
 
 from hud import instrument
 from hud.types import AgentResponse, MCPToolCall, MCPToolResult
+from hud.utils.hud_console import HUDConsole
 
 from .base import MCPAgent
 
@@ -35,6 +36,8 @@ logger = logging.getLogger(__name__)
 
 class GenericOpenAIChatAgent(MCPAgent):
     """MCP-enabled agent that speaks the OpenAI *chat.completions* protocol."""
+
+    metadata: ClassVar[dict[str, Any]] = {}
 
     def __init__(
         self,
@@ -49,8 +52,8 @@ class GenericOpenAIChatAgent(MCPAgent):
         self.oai = openai_client
         self.model_name = model_name
         self.completion_kwargs: dict[str, Any] = completion_kwargs or {}
-        self.conversation_history = []
         self.mcp_schemas = []
+        self.hud_console = HUDConsole(logger=logger)
 
     @staticmethod
     def _oai_to_mcp(tool_call: Any) -> MCPToolCall:  # type: ignore[valid-type]
@@ -172,18 +175,27 @@ class GenericOpenAIChatAgent(MCPAgent):
         """Send chat request to OpenAI and convert the response."""
 
         # Convert MCP tool schemas to OpenAI format
-        self.mcp_schemas = self.get_tool_schemas()
-        logger.debug(f"Tool schemas for vLLM: {self.mcp_schemas}")
+        mcp_schemas = self.get_tool_schemas()
 
         protected_keys = {"model", "messages", "tools"}
         extra = {k: v for k, v in (self.completion_kwargs or {}).items() if k not in protected_keys}
 
-        response = await self.oai.chat.completions.create(
-            model=self.model_name,
-            messages=messages,
-            tools=cast("list[ChatCompletionToolParam]", self.mcp_schemas),
-            **extra,
-        )
+        try:
+            response = await self.oai.chat.completions.create(
+                model=self.model_name,
+                messages=messages,
+                tools=cast("list[ChatCompletionToolParam]", mcp_schemas),
+                **extra,
+            )
+        except Exception as e:
+            self.hud_console.error(f"Error getting response: {e}")
+            return AgentResponse(
+                content=f"Error getting response {e}",
+                tool_calls=[],
+                done=True,
+                isError=True,
+                raw=None,
+            )
 
         choice = response.choices[0]
         msg = choice.message
@@ -208,9 +220,6 @@ class GenericOpenAIChatAgent(MCPAgent):
 
         messages.append(assistant_msg)
 
-        # Store the complete conversation history
-        self.conversation_history = messages.copy()
-
         tool_calls = []
         if msg.tool_calls:
             for tc in msg.tool_calls:
@@ -219,7 +228,7 @@ class GenericOpenAIChatAgent(MCPAgent):
 
         # Only stop on length (token limit), never on "stop"
         done = choice.finish_reason == "length"
-        logger.info(f"Done decision: finish_reason={choice.finish_reason}, done={done}")
+        self.hud_console.info(f"Done decision: finish_reason={choice.finish_reason}, done={done}")
         
         return AgentResponse(
             content=msg.content or "",
@@ -241,13 +250,10 @@ class GenericOpenAIChatAgent(MCPAgent):
         rendered: list[dict[str, Any]] = []
 
         # Separate text and image content
-        text_parts = []
         image_parts = []
         for call, res in zip(tool_calls, tool_results, strict=False):
-            # Use structuredContent.result if available, otherwise use content
+            text_parts = []
             items = res.content
-            if res.structuredContent and isinstance(res.structuredContent, dict):
-                items = res.structuredContent.get("result", res.content)
 
             for item in items:
                 if isinstance(item, dict):
@@ -280,7 +286,6 @@ class GenericOpenAIChatAgent(MCPAgent):
                     "content": text_content,
                 }
             )
-
         # If there are images, add them as a separate user message
         if image_parts:
             # Add a user message with the images
