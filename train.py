@@ -27,6 +27,10 @@ tmux new -s train
 tmux attach -t session_name
 tmux kill-session -t session_name
 
+hud eval kizro/deep_research_taskset_full     --full     --agent vllm     --model Qwen/Qwen2.5-14B-Instruct     --vllm-base-url http://localhost:8000/v1     --group-size 16     --max-concurrent 32     --max-steps 5 --verbose
+
+CUDA_VISIBLE_DEVICES=0 vllm serve Qwen/Qwen2.5-7B-Instruct     --enable-auto-tool-choice     --tool-call-parser hermes    --enforce-eager     --disable-log-requests
+
 rm -rf ~/.triton ~/.cache/torch/inductor ~/.cache/torch/extension_cache
 """
 import verifiers as vf

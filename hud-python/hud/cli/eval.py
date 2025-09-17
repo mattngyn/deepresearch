@@ -22,7 +22,7 @@ def get_available_models() -> list[dict[str, str | None]]:
     """Fetch available models from the HUD API (only ready models).
     
     Returns:
-        List of dicts with 'name' and 'vllm_url' keys
+        List of dicts with 'name', 'vllm_url', and 'base_model' keys
     """
     try:
         from hud.cli.rl import rl_api
@@ -47,7 +47,7 @@ def get_available_models() -> list[dict[str, str | None]]:
             if training_count > 0:
                 hud_console.info(f"\n({training_count} models currently training)")
             
-            return [{"name": model.name, "vllm_url": model.vllm_url} for model in ready_models]
+            return [{"name": model.name, "vllm_url": model.vllm_url, "base_model": model.base_model} for model in ready_models]
         else:
             if training_count > 0:
                 hud_console.warning(f"No ready models found. You have {training_count} models currently training.")
@@ -87,14 +87,9 @@ def build_agent(
         # Determine the base URL to use
         if vllm_base_url is not None:
             # Use the provided vLLM URL (for custom/local servers)
-            base_url = str(vllm_base_url)
+            base_url = vllm_base_url
             hud_console.info(f"Using vLLM server at {base_url}")
             api_key = settings.api_key if base_url.startswith(settings.hud_rl_url) else "token-abc123"
-        elif model:
-            # Always use standard HUD vLLM endpoint for HUD models
-            base_url = f"{settings.hud_rl_url}/models/{model}/vllm"
-            api_key = settings.api_key
-            hud_console.info(f"Using HUD vLLM endpoint: {base_url}")
         else:
             # Default to localhost
             base_url = "http://localhost:8000/v1"
@@ -104,6 +99,7 @@ def build_agent(
         openai_client = AsyncOpenAI(
             base_url=base_url,
             api_key=api_key,
+            timeout=30.0,
         )
         
         return GenericOpenAIChatAgent(
@@ -113,6 +109,7 @@ def build_agent(
             completion_kwargs={
                 "temperature": 0.7,
                 "max_tokens": 2048,
+                "tool_choice": "required" #if self.actor_config.force_tool_choice else "auto",
             }
         )
     
@@ -190,95 +187,6 @@ async def run_single_task(
         
         # Use unified loader for both JSON and JSONL
         tasks = load_tasks(str(path))
-        
-        # Check if we have multiple tasks
-        if len(tasks) > 1:
-            hud_console.info(f"Found {len(tasks)} tasks in file, running as dataset…")
-
-            # Build agent class and config for run_dataset
-            if agent_type == "vllm":
-                try:
-                    from hud.agents.openai_chat_generic import GenericOpenAIChatAgent
-                    agent_class = GenericOpenAIChatAgent
-                except ImportError as e:
-                    hud_console.error(
-                        "OpenAI dependencies are not installed. "
-                        "Please install with: pip install 'hud-python\u27E6agent\u27E7'"
-                    )
-                    raise typer.Exit(1) from e
-
-                # Use build_agent to create a sample agent to get the config
-                sample_agent = build_agent(
-                    agent_type,
-                    model=model,
-                    allowed_tools=allowed_tools,
-                    verbose=verbose,
-                    vllm_base_url=vllm_base_url,
-                )
-                
-                # Extract the config from the sample agent
-                agent_config: dict[str, Any] = {
-                    "openai_client": sample_agent.oai,
-                    "model_name": sample_agent.model_name,
-                    "verbose": verbose,
-                    "completion_kwargs": sample_agent.completion_kwargs,
-                }
-                if allowed_tools:
-                    agent_config["allowed_tools"] = allowed_tools
-
-            elif agent_type == "openai":
-                try:
-                    from hud.agents import OperatorAgent
-
-                    agent_class = OperatorAgent
-                except ImportError as e:
-                    hud_console.error(
-                        "OpenAI agent dependencies are not installed. "
-                        "Please install with: pip install 'hud-python\u27e6agent\u27e7'"
-                    )
-                    raise typer.Exit(1) from e
-
-                agent_config = {"verbose": verbose}
-                if allowed_tools:
-                    agent_config["allowed_tools"] = allowed_tools
-
-            else:
-                try:
-                    from hud.agents import ClaudeAgent
-
-                    agent_class = ClaudeAgent
-                except ImportError as e:
-                    hud_console.error(
-                        "Claude agent dependencies are not installed. "
-                        "Please install with: pip install 'hud-python[agent]'"
-                    )
-                    raise typer.Exit(1) from e
-
-                agent_config = {
-                    "model": model or "claude-sonnet-4-20250514",
-                    "verbose": verbose,
-                }
-                if allowed_tools:
-                    agent_config["allowed_tools"] = allowed_tools
-
-            # Convert Task objects to dicts for run_dataset
-            task_dicts = [task.model_dump() for task in tasks]
-            
-            # Run as dataset with single-task concurrency to maintain debug behavior
-            results = await run_dataset(
-                name=f"Dataset: {path.name}",
-                dataset=task_dicts,  # Pass the list of task dicts
-                agent_class=agent_class,
-                agent_config=agent_config,
-                max_concurrent=1,  # Run sequentially for debug mode
-                metadata={"source": str(path)},
-                max_steps=max_steps,
-            )
-
-            # Display summary
-            successful = sum(1 for r in results if getattr(r, "reward", 0) > 0)
-            hud_console.success(f"Completed {len(results)} tasks: {successful} successful")
-            return
 
         # Single task - use the first (and only) task
         task = tasks[0]
@@ -413,10 +321,7 @@ async def run_full_dataset(
     
     # Determine dataset name
     path = Path(source)
-    if path.exists():
-        dataset_name = f"Dataset: {path.name}"
-    else:
-        dataset_name = source.split("/")[-1]
+    dataset_name = f"Dataset: {path.name}" if path.exists() else source.split("/")[-1]
     
     hud_console.info(f"Found {len(tasks)} tasks")
 
@@ -690,9 +595,8 @@ def eval_command(
         if model:
             hud_console.info(f"Using vLLM with model: {model}")
         else:
-            # Default to served-model if no model specified
-            model = "served-model"
-            hud_console.info("Using vLLM with default model: served-model")
+            hud_console.error("Model name is required for vLLM agent, specify with --model")
+            raise typer.Exit(1)
 
     # Check for HUD_API_KEY if using HUD services
     if not settings.api_key:

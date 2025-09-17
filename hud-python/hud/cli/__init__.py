@@ -776,17 +776,16 @@ def eval(
             "If not provided, looks for task.json in current directory."
         ),
     ),
+    agent: str | None = typer.Argument(
+        None,
+        help=(
+            "Agent backend to use (claude, openai, or vllm). If not provided, will prompt interactively."
+        ),
+    ),
     full: bool = typer.Option(
         False,
         "--full",
         help="Run the entire dataset (omit for single-task debug mode)",
-    ),
-    agent: str | None = typer.Option(
-        None,
-        "--agent",
-        help=(
-            "Agent backend to use (claude, openai, or vllm). If not provided, will prompt interactively."
-        ),
     ),
     model: str | None = typer.Option(
         None,
@@ -840,6 +839,7 @@ def eval(
     ),
 ) -> None:
     """🚀 Run evaluation on datasets or individual tasks with agents."""
+    from hud.settings import settings
     from hud.utils.hud_console import HUDConsole
 
     hud_console = HUDConsole()
@@ -904,6 +904,7 @@ def eval(
         raise typer.Exit(1) from e
 
     # If no agent specified, fetch available models and prompt for selection
+    base_model = None
     if agent is None:
         # Get available HUD models first
         hud_models = get_available_models()
@@ -914,8 +915,9 @@ def eval(
         # Add HUD models as agent choices
         for hud_model in hud_models:
             model_name = hud_model["name"]
+            base_model = hud_model["base_model"]
             vllm_status = " ⚡" if hud_model.get("vllm_url") else ""
-            choices.append({"name": f"🚀 {model_name}{vllm_status}", "value": f"hud:{model_name}"})
+            choices.append({"name": f"{model_name}{vllm_status}", "value": f"{model_name}"})
         
         # Add standard agent choices
         choices.extend([
@@ -931,11 +933,26 @@ def eval(
         )
 
     # Handle HUD model selection
-    if agent and agent.startswith("hud:"):
-        model = agent.split(":", 1)[1]
+    if agent and agent not in ["claude", "openai", "vllm"]:
+        # Find remote model name
+        model = agent
+        if not vllm_base_url:
+            vllm_base_url = f"{settings.hud_rl_url}/models/{model}/vllm"
+
+        # Set model to base model for the vllm endpoint
+        if not base_model:
+            hud_models = get_available_models()
+            for hud_model in hud_models:
+                if hud_model["name"] == model:
+                    base_model = hud_model["base_model"]
+                    break
+        if not base_model:
+            hud_console.error(f"Model {model} not found")
+            raise typer.Exit(1)
+        model = base_model
         agent = "vllm"  # Use vLLM backend for HUD models
-        hud_console.info(f"Using HUD model: {model}")
-    
+        hud_console.info(f"Using HUD model: {model} (trained on {base_model})")
+
     # Validate agent choice
     valid_agents = ["claude", "openai", "vllm"]
     if agent not in valid_agents:
@@ -984,6 +1001,12 @@ def get(
         "-l",
         help="Limit number of examples to download"
     ),
+    format: str = typer.Option(
+        "json",
+        "--format",
+        "-f",
+        help="Output format: json (list) or jsonl (one task per line)",
+    ),
 ) -> None:
     """📥 Download a HuggingFace dataset and save it as JSONL."""
     from .get import get_command
@@ -993,6 +1016,7 @@ def get(
         split=split,
         output=output,
         limit=limit,
+        format=format,
     )
 
 
@@ -1005,10 +1029,8 @@ def rl(
             "If not provided, looks for tasks.json or tasks.jsonl in current directory."
         ),
     ),
-    model: str | None = typer.Option(
+    model: str | None = typer.Argument(
         None,
-        "--model",
-        "-m",
         help="Model to train (default: interactive selection)",
     ),
     config_file: Path | None = typer.Option(

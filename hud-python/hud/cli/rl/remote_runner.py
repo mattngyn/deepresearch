@@ -129,11 +129,12 @@ def run_remote_training(
                 ],
                 default="Qwen/Qwen2.5-VL-3B-Instruct"
             )
-            
+            from rich.prompt import Prompt
+
             # Ask for model name
             default_name = model_type.split("/")[-1].lower()
-            hud_console.info(f"Enter model name (default: {default_name}):")
-            model_name = input().strip() or default_name
+            hud_console.info("Enter model name (default: %s):" % default_name)
+            model_name = Prompt.ask("Model name", default=default_name)
             model_name = model_name.replace("/", "-").lower()
             
             # Create the model
@@ -341,7 +342,3 @@ def run_remote_training(
         hud_console.error(f"Failed to launch training: {e}")
         raise
     
-
-# Exports for backward compatibility
-remote_train_command = run_remote_training
-remote_main = run_remote_training

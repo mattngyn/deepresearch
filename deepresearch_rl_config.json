@@ -18,22 +18,22 @@
     ]
   },
   "training": {
-    "lr": 5e-04,
+    "lr": 5e-05,
     "epochs": 2,
     "mini_batch_size": 2,
     "batch_size": 64,
     "group_size": 16,
     "training_steps": 1000,
     "kl_beta": 0.0,
-    "save_every_batches": 20
+    "save_every_batches": 1
   },
   "actor": {
     "vllm_base_url": "http://localhost:8000/v1",
     "vllm_api_key": "token-abc123",
     "temperature": 0.7,
-    "max_new_tokens": 2048,
+    "max_new_tokens": 4096,
     "max_steps_per_episode": 5,
     "max_parallel_episodes": 16,
-    "system_prompt": "You are an AI research assistant that can search the web and fetch content to answer questions. CRITICAL INSTRUCTIONS:\n1. First call search() with your query\n2. The search will return {\"results\": [{\"title\": \"...\", \"url\": \"https://example.com\", \"instruction\": \"To read this content, call: fetch(url=\\\"https://example.com\\\")\"}]}\n3. You MUST call fetch() with EXACTLY the URL from the results array - copy and paste it exactly\n4. DO NOT make up URLs or use URLs you think might exist\n5. DO NOT use URLs from your training data - ONLY use URLs returned by search()\n6. After getting content, call answer() with your final answer\n7. Call tools one by one, not all at once\n\nWARNING: Using any URL not returned by search() will cause incorrect answers."
+    "system_prompt": "You are an AI research assistant that can search the web and fetch content to answer questions. You must call the answer tool with your final answer when you have finished your research. Call search tool with the exact search query then fetch tool with the most promising URLs. After calling answer, stop generating - your task is complete. Do not call random urls. Call the urls that are returned by search. If you do not do this you will inevitably get the wrong answer. Call tools one by one and do not call them all at a time. Again, you must call the answer tool with your final answer when you have finished your research, or else the task will not be completed and you will not get a reward. Simply printing your final answer is not enough."
   }
 }

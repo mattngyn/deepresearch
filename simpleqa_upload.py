@@ -75,15 +75,11 @@ def make_tasks(
 
 
 def main():
-    # -----------------------------
-    # EDIT THESE VARIABLES AS NEEDED
-    # -----------------------------
     repo_id = "kizro/deep_research_taskset_full"  # destination for save_tasks
     split = "test"                           # dataset split
-    limit = 500                              # 0 = all rows, or e.g. 100
+    limit = 50                              # 0 = all rows, or e.g. 100
     docker_image = "deepresearch:dev"        # docker image
     append_answer_instruction = True         # add instruction to prompt
-    # -----------------------------
 
     # Load system prompt from config
     system_prompt = load_system_prompt()

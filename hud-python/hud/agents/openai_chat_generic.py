@@ -228,7 +228,8 @@ class GenericOpenAIChatAgent(MCPAgent):
 
         # Only stop on length (token limit), never on "stop"
         done = choice.finish_reason == "length"
-        self.hud_console.info(f"Done decision: finish_reason={choice.finish_reason}, done={done}")
+        if done:
+            self.hud_console.info(f"Done decision: finish_reason={choice.finish_reason}")
         
         return AgentResponse(
             content=msg.content or "",
@@ -252,8 +253,11 @@ class GenericOpenAIChatAgent(MCPAgent):
         # Separate text and image content
         image_parts = []
         for call, res in zip(tool_calls, tool_results, strict=False):
+            # Use structuredContent.result if available, otherwise use content
             text_parts = []
             items = res.content
+            if not res.content and res.structuredContent:
+                items = [res.structuredContent.get("result", res.content)]
 
             for item in items:
                 if isinstance(item, dict):
@@ -286,6 +290,7 @@ class GenericOpenAIChatAgent(MCPAgent):
                     "content": text_content,
                 }
             )
+
         # If there are images, add them as a separate user message
         if image_parts:
             # Add a user message with the images

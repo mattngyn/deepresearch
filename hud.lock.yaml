@@ -1,45 +1,37 @@
 version: '1.0'
-image: deepresearch:dev@sha256:e029306329779c97e9b254170cb232538e91bb2f033e67ad771f10a36e10f571
+image: deepresearch:dev@sha256:08a751aa69d0c6a6e73867c62dd571c10d989f8235acd892c611e38f7d901717
 build:
-  generatedAt: '2025-09-12T01:06:57.107715Z'
-  hudVersion: 0.4.17
+  generatedAt: '2025-09-17T00:31:55.210478Z'
+  hudVersion: 0.4.24
   directory: deepresearch
-  version: 0.1.26
+  version: 0.1.28
 environment:
-  initializeMs: 2177
+  initializeMs: 1812
   toolCount: 5
 tools:
 - name: search
   description: "Search the web for information and return titles and URLs using Exa\
-    \ API.\n\nArgs:\n    query: The search query string\n    max_results: Maximum\
-    \ number of results to return (default: 10)\n\nReturns:\n    List of dictionaries\
+    \ API.\n\nArgs:\n    query: The search query string\n\nReturns:\n    List of dictionaries\
     \ containing 'title' and 'url' for each result"
   inputSchema:
     properties:
       query:
         title: Query
         type: string
-      max_results:
-        default: 5
-        title: Max Results
-        type: integer
     required:
     - query
     type: object
 - name: fetch
-  description: "Fetch and extract text content from a URL using Exa API.\n\nArgs:\n\
-    \    url: The URL to fetch content from\n    max_length: Maximum length of text\
-    \ to return (default: 2500 characters)\n\nReturns:\n    Extracted text content\
-    \ from the webpage"
+  description: "Fetch and extract content from a URL using Exa API, including summary,\
+    \ highlights, and full text.\n\nArgs:\n    url: The URL to fetch content from\n\
+    \nReturns:\n    Formatted content including:\n    - Summary with main takeaways\n\
+    \    - 3 key highlights (5 sentences each)\n    - Full text content (truncated\
+    \ to 2500 characters)"
   inputSchema:
     properties:
       url:
         title: Url
         type: string
-      max_length:
-        default: 2500
-        title: Max Length
-        type: integer
     required:
     - url
     type: object
@@ -60,7 +52,7 @@ tools:
     properties: {}
     type: object
 - name: evaluate
-  description: "Required for HUD environments. Evaluates if the submitted answer matches\
+  description: "Required for HUD environments. Evaluates if the submitted answer contains\
     \ the expected answer.\n\nArgs:\n    expected_answer: The correct answer to check\
     \ against\n\nReturns:\n    Evaluation result with reward and content string"
   inputSchema:

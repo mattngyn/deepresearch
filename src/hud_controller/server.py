@@ -1,19 +1,25 @@
 """Simple DeepResearch MCP server for HUD."""
 import httpx
 import os
+from pathlib import Path
 from bs4 import BeautifulSoup
 from urllib.parse import quote_plus, urlparse
 from hud.server import MCPServer
 from hud.server.context import attach_context
 from typing import List, Dict
+from dotenv import load_dotenv
 
-mcp = MCPServer("DeepResearch", version="0.1.0")
+# Load .env file from the same directory as this script
+env_path = Path(__file__).parent / ".env"
+load_dotenv(env_path)
+
+mcp = MCPServer(name="deepresearch")
 ctx = None
 
 @mcp.initialize
 async def init(init_ctx):
     global ctx
-    ctx = await attach_context(init_ctx)
+    ctx = attach_context("/tmp/hud_ctx.sock")
 
 @mcp.shutdown
 async def cleanup():
@@ -21,7 +27,7 @@ async def cleanup():
     ctx = None
 
 @mcp.tool()
-async def search(query: str) -> dict:
+async def search(query: str) -> List[Dict[str, str]]:
     """
     Search the web for information and return titles and URLs using Exa API.
     
@@ -29,25 +35,19 @@ async def search(query: str) -> dict:
         query: The search query string
     
     Returns:
-        Dictionary containing search results with key 'results'. Each result contains:
-        - title: The page title
-        - url: The exact URL to fetch (MUST use this exact URL with fetch())
-        - instruction: How to fetch this content
-        
-    Example return: {"results": [{"title": "Example Page", "url": "https://example.com/page", "instruction": "To read this content, call: fetch(url=\"https://example.com/page\")"}]}
+        List of dictionaries containing 'title' and 'url' for each result
     """
     results = []
     max_results = 1  # Hardcoded to 1 result
     
     # Get Exa API key from environment
-    exa_api_key = "c3ad9f16-4d2e-47ad-bba5-a7ba060474bf"
+    exa_api_key = os.getenv("EXA_API_KEY")
     if not exa_api_key:
-        return {
-            "results": [],
+        return [{
             "error": "Exa API key not found",
             "message": "Please set EXA_API_KEY environment variable",
             "instructions": "Get your API key from https://dashboard.exa.ai/home"
-        }
+        }]
     
     try:
         # Use Exa search API
@@ -82,70 +82,60 @@ async def search(query: str) -> dict:
                 if title and url:
                     results.append({
                         'title': title,
-                        'url': url,
-                        'instruction': f'To read this content, call: fetch(url="{url}")'
+                        'url': url
                     })
             
             # If no results, provide helpful feedback
             if not results:
-                return {
-                    "results": [],
+                return [{
                     "message": "No results found",
                     "query": query,
                     "autopromptString": data.get('autopromptString', query)
-                }
+                }]
                 
     except httpx.HTTPStatusError as e:
         if e.response.status_code == 401:
-            return {
-                "results": [],
+            return [{
                 "error": "Invalid Exa API key",
                 "message": "Please check your EXA_API_KEY environment variable",
                 "status_code": str(e.response.status_code)
-            }
+            }]
         elif e.response.status_code == 429:
-            return {
-                "results": [],
+            return [{
                 "error": "Exa API rate limit exceeded",
                 "message": "Please wait before making more requests",
                 "status_code": str(e.response.status_code)
-            }
+            }]
         else:
-            return {
-                "results": [],
+            return [{
                 "error": f"Exa API error: {e.response.status_code}",
                 "message": str(e),
                 "response": e.response.text[:500]
-            }
+            }]
     except Exception as e:
-        return {
-            "results": [],
+        return [{
             "error": f"Search failed: {type(e).__name__}",
             "message": str(e)
-        }
+        }]
     
     # Store search history in context
     ctx.add_search(query, results)
     
-    return {"results": results}
+    return results
 
 @mcp.tool()
 async def fetch(url: str) -> str:
     """
     Fetch and extract content from a URL using Exa API, including summary, highlights, and full text.
     
-    CRITICAL: You MUST use the exact URL returned by search(). Do not modify or guess URLs.
-    
     Args:
-        url: The EXACT URL from search results (copy it exactly as shown)
+        url: The URL to fetch content from
     
     Returns:
         Formatted content including:
         - Summary with main takeaways
         - 3 key highlights (5 sentences each)
         - Full text content (truncated to 2500 characters)
-        
-    Example: If search returned {"url": "https://example.com/page"}, call: fetch(url="https://example.com/page")
     """
     max_length = 2500  # Hardcoded to 2500 characters
     # Validate URL
@@ -153,9 +143,8 @@ async def fetch(url: str) -> str:
     if not parsed.scheme or not parsed.netloc:
         return f"Invalid URL: {url}"
     
-    
     # Get Exa API key
-    exa_api_key = "c3ad9f16-4d2e-47ad-bba5-a7ba060474bf"
+    exa_api_key = os.getenv("EXA_API_KEY")
     if not exa_api_key:
         # Fallback to direct fetch if no API key
         return await _direct_fetch(url)
@@ -300,7 +289,7 @@ async def answer(final_answer: str) -> str:
     Submit the final answer to the research question.
     
     Args:
-        final_answer: The complete answer to the research question
+        final_answer: The agent's final answer to the task
     
     Returns:
         Confirmation message
@@ -318,33 +307,39 @@ async def setup() -> str:
 @mcp.tool()
 async def evaluate(expected_answer: str) -> dict:
     """
-    Required for HUD environments. Evaluates if the submitted answer matches the expected answer.
+    Required for HUD environments. Evaluates if the submitted answer contains the expected answer.
     
     Args:
-        expected_answer: The expected answer to compare against
+        expected_answer: The correct answer to check against
     
     Returns:
-        Dictionary containing:
-        - success: Whether the answer matches
-        - actual_answer: The submitted answer
-        - expected_answer: The expected answer
-        - stats: Performance statistics
+        Evaluation result with reward and content string
     """
-    actual = ctx.get_answer()
-    success = actual and expected_answer and actual.strip().lower() == expected_answer.strip().lower()
+    submitted = ctx.get_submitted_answer()
+    
+    # Check if an answer was submitted
+    if submitted is None:
+        return {
+            "reward": 0.0,
+            "content": f"No answer submitted. Searches: {ctx.get_search_count()}, Fetches: {ctx.get_fetch_count()}"
+        }
+    
+    # Check if expected answer is contained in submitted answer (case-insensitive)
+    submitted_clean = submitted.strip().lower()
+    expected_clean = expected_answer.strip().lower()
+    
+    # Accept if expected answer is contained within submitted answer
+    is_correct = expected_clean in submitted_clean
+    
+    # Build result message
+    result_msg = f"{'✅ Correct!' if is_correct else '❌ Incorrect.'} "
+    result_msg += f"Submitted: '{submitted}', Expected: '{expected_answer}'. "
+    result_msg += f"Stats: {ctx.get_search_count()} searches, {ctx.get_fetch_count()} fetches, {ctx.get_total_operations()} total operations."
     
     return {
-        "success": success,
-        "actual_answer": actual or "",
-        "expected_answer": expected_answer,
-        "stats": ctx.get_stats()
+        "reward": 1.0 if is_correct else 0.0,
+        "content": result_msg
     }
 
-@mcp.tool()
-async def done() -> str:
-    """Signal that you have completed the task."""
-    return "Task completed"
-
-# Run the server
 if __name__ == "__main__":
     mcp.run()

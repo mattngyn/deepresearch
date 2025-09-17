@@ -129,6 +129,8 @@ def _run_training(
     elif not config_data["model"].get("base_model"):
         # Default to Qwen if no model specified
         config_data["model"]["base_model"] = "Qwen/Qwen2.5-VL-3B-Instruct"
+
+    config_data["out_dir"] = output_dir or "/checkpoints"
     
     # Debug: Print the final config
     print(f"Final config model: {config_data['model'].get('base_model')}")
@@ -149,20 +151,17 @@ def _run_training(
     print(f"Config: {config_path}")
     print(f"Output dir: {output_dir}")
     
-    # Run training (skip local vLLM startup since we're using remote)
-    rl_command(
+    # Launch DDP training with torchrun across all visible GPUs in the container
+    from hud.cli.rl import launch_ddp_training
+    import torch
+
+    visible_gpus = list(range(max(1, torch.cuda.device_count())))
+
+    launch_ddp_training(
+        training_gpus=visible_gpus,
         tasks_file=tasks_file_to_use,
-        model=model,
-        config_file=config_path,
-        output_dir=output_dir,
-        restart=False,
+        config_path=config_path,
         verbose=True,
-        modal=False,
-        modal_gpu="",
-        no_ddp=True,
-        ddp_gpus=None,
-        vllm_gpu=None,  # Not using local vLLM
-        skip_vllm_startup=True,  # Using remote vLLM server
     )
     
     # Commit checkpoint volume

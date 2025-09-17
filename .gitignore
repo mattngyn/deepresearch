@@ -1,3 +1,4 @@
 wandb/
 outputs/
 checkpoints/
+src/hud_controller/.env
