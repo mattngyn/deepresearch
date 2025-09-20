@@ -1,0 +1,71 @@
+{
+  "model": {
+    "base_model": "Qwen/Qwen2.5-7B-Instruct",
+    "lora_r": 8,
+    "lora_alpha": 16,
+    "lora_dropout": 0.0,
+    "target_modules": [
+      "q_proj",
+      "k_proj",
+      "v_proj",
+      "o_proj",
+      "gate_proj",
+      "up_proj",
+      "down_proj"
+    ],
+    "min_pixels": 200704,
+    "max_pixels": 401408,
+    "attn_implementation": "flash_attention_2",
+    "use_liger": true,
+    "gradient_checkpointing": true
+  },
+  "training": {
+    "training_steps": 1000,
+    "shuffle_dataset": false,
+    "save_every_batches": 1,
+    "epochs": 2,
+    "batch_size": 64,
+    "group_size": 16,
+    "mini_batch_size": 1,
+    "update_after_group": true,
+    "accumulate_over_minibatches": true,
+    "batch_level": "batch",
+    "no_std": true,
+    "leave_one_out": true,
+    "buffer_steps": 6,
+    "select_strategy": "variance",
+    "ppo_mode": "per_token",
+    "token_agg": "sum",
+    "kl_beta": 0.0,
+    "entropy_beta": 0.0,
+    "top_eps": 0.2,
+    "bottom_eps": 0.1,
+    "lr": 5e-05,
+    "grad_clip": 1.0,
+    "use_8bit_optimizer": true,
+    "adam_betas": [
+      0.9,
+      0.999
+    ],
+    "adam_eps": 1e-08
+  },
+  "actor": {
+    "max_steps_per_episode": 5,
+    "max_parallel_episodes": 64,
+    "max_new_tokens": 4096,
+    "force_tool_choice": false,
+    "allowed_tools": null,
+    "temperature": 0.7,
+    "system_prompt": "You are an AI research assistant that can search the web and fetch content to answer questions. You must call the answer tool with your final answer when you have finished your research. Call search tool with the exact search query then fetch tool with the most promising URLs. After calling answer, stop generating - your task is complete. Do not call random urls. Call the urls that are returned by search. If you do not do this you will inevitably get the wrong answer. Call tools one by one and do not call them all at a time. Again, you must call the answer tool with your final answer when you have finished your research, or else the task will not be completed and you will not get a reward. Simply printing your final answer is not enough.",
+    "vllm_base_url": "http://localhost:8000/v1",
+    "vllm_api_key": "token-abc123",
+    "episode_timeout_sec": 600
+  },
+  "job_name": "RL Training",
+  "job_id": null,
+  "stats_interval": 1,
+  "verbose": false,
+  "out_dir": "./checkpoints",
+  "adapter_prefix": "deepresearch-grpo",
+  "seed": 42
+}

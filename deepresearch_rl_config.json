@@ -2,6 +2,7 @@
   "seed": 42,
   "out_dir": "./checkpoints",
   "adapter_prefix": "deepresearch-grpo",
+  "verbose": true,
   "model": {
     "base_model": "Qwen/Qwen2.5-7B-Instruct",
     "lora_r": 8,
@@ -18,13 +19,19 @@
     ]
   },
   "training": {
-    "lr": 5e-05,
+    "lr": 3e-05,
     "epochs": 2,
-    "mini_batch_size": 2,
-    "batch_size": 64,
+    "mini_batch_size": 1,
+    "batch_size": 16,
+    "buffer_steps": 16,
     "group_size": 16,
     "training_steps": 1000,
-    "kl_beta": 0.0,
+    "update_after_group": false,
+    "batch_level": "batch",
+    "no_std": true,
+    "token_agg": "sum",
+    "entropy_beta": 0,
+    "select_strategy": "variance",
     "save_every_batches": 1
   },
   "actor": {

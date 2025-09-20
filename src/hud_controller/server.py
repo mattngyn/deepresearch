@@ -53,7 +53,7 @@ async def search(query: str) -> List[Dict[str, str]]:
         # Use Exa search API
         search_url = "https://api.exa.ai/search"
         
-        async with httpx.AsyncClient() as client:
+        async with httpx.AsyncClient(timeout=30.0) as client:
             response = await client.post(
                 search_url,
                 headers={
@@ -146,14 +146,14 @@ async def fetch(url: str) -> str:
     # Get Exa API key
     exa_api_key = os.getenv("EXA_API_KEY")
     if not exa_api_key:
-        # Fallback to direct fetch if no API key
-        return await _direct_fetch(url)
+        # Return failure message if no API key
+        return "Fetch failed: No Exa API key available"
     
     try:
         # Use Exa contents API for reliable fetching
         contents_url = "https://api.exa.ai/contents"
         
-        async with httpx.AsyncClient() as client:
+        async with httpx.AsyncClient(timeout=30.0) as client:
             response = await client.post(
                 contents_url,
                 headers={
@@ -173,7 +173,7 @@ async def fetch(url: str) -> str:
                     "summary": {
                         "query": "main takeaways"
                     },
-                    "livecrawl": "fallback"  # Use cache first, livecrawl if needed
+                    "livecrawl": "fallback" 
                 }
             )
             
@@ -223,65 +223,15 @@ async def fetch(url: str) -> str:
                 
     except httpx.HTTPStatusError as e:
         if e.response.status_code == 401:
-            # Invalid API key, fallback to direct fetch
-            return await _direct_fetch(url)
+            # Invalid API key, return failure message
+            return "Fetch failed: Invalid Exa API key"
         elif e.response.status_code == 429:
             return "Exa API rate limit exceeded. Please wait before fetching more content."
         else:
             return f"Exa API error: {e.response.status_code} - {e.response.text[:200]}"
     except Exception as e:
-        # Fallback to direct fetch on any error
-        return await _direct_fetch(url)
-
-
-async def _direct_fetch(url: str) -> str:
-    """
-    Direct fetch fallback when Exa API is not available.
-    Note: This method may be rate limited by websites.
-    """
-    max_length = 2500  # Hardcoded to 2500 characters
-    try:
-        async with httpx.AsyncClient(follow_redirects=True, timeout=30.0) as client:
-            response = await client.get(
-                url,
-                headers={
-                    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
-                    "Accept-Language": "en-US,en;q=0.9",
-                    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8"
-                }
-            )
-            response.raise_for_status()
-            
-            # Parse HTML and extract text
-            soup = BeautifulSoup(response.text, 'lxml')
-            
-            # Remove script and style elements
-            for script in soup(["script", "style"]):
-                script.decompose()
-            
-            # Get text
-            text = soup.get_text()
-            
-            # Clean up text
-            lines = (line.strip() for line in text.splitlines())
-            chunks = (phrase.strip() for line in lines for phrase in line.split("  "))
-            text = ' '.join(chunk for chunk in chunks if chunk)
-            
-            # Limit text length
-            if len(text) > max_length:
-                text = text[:max_length] + "...[truncated]"
-            
-            # Store fetch history in context
-            ctx.add_fetch(url, len(text))
-            
-            return text if text else "No text content found"
-            
-    except httpx.HTTPStatusError as e:
-        return f"HTTP error {e.response.status_code}: {e.response.reason_phrase} (Note: This URL may be blocking automated access)"
-    except httpx.RequestError as e:
-        return f"Request error: {str(e)}"
-    except Exception as e:
-        return f"Error fetching URL: {str(e)}"
+        # Return failure message on any error
+        return f"Fetch failed: {type(e).__name__} - {str(e)}"
 
 @mcp.tool()
 async def answer(final_answer: str) -> str:

@@ -1,12 +1,12 @@
 version: '1.0'
-image: deepresearch:dev@sha256:08a751aa69d0c6a6e73867c62dd571c10d989f8235acd892c611e38f7d901717
+image: kizro/deepresearch@sha256:f81583fdd18db600cfcc378ee4cf9701d5ca4946af7f9672d5a3c98ca185af9e
 build:
-  generatedAt: '2025-09-17T00:31:55.210478Z'
-  hudVersion: 0.4.24
+  generatedAt: '2025-09-20T00:32:46.102622Z'
+  hudVersion: 0.4.30
   directory: deepresearch
-  version: 0.1.28
+  version: 0.1.33
 environment:
-  initializeMs: 1812
+  initializeMs: 1776
   toolCount: 5
 tools:
 - name: search
@@ -63,3 +63,7 @@ tools:
     required:
     - expected_answer
     type: object
+push:
+  source: deepresearch:dev@sha256:d31d1536083fda0c761545163559c9abd13defb38dfd4f6086f69da95daf1efb
+  pushedAt: '2025-09-20T00:35:22.678525Z'
+  registry: kizro
